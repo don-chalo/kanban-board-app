@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #000000;
+  --color-xenon: #f0f000;
+  --color-mist: #d4d4d4;
+  --font-matrix: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

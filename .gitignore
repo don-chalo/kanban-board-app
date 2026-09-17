@@ -1,0 +1,27 @@
+# Logs
+kanban-**/logs
+kanban-**/*.log
+kanban-**/npm-debug.log*
+kanban-**/yarn-debug.log*
+kanban-**/yarn-error.log*
+kanban-**/pnpm-debug.log*
+kanban-**/lerna-debug.log*
+
+.opencode
+kanban-**/node_modules
+kanban-**/dist
+kanban-**/dist-ssr
+kanban-**/*.local
+
+# Editor directories and files
+kanban-**/.vscode/*
+kanban-**/!.vscode/extensions.json
+kanban-**/.idea
+kanban-**/.DS_Store
+kanban-**/*.suo
+kanban-**/*.ntvs*
+kanban-**/*.njsproj
+kanban-**/*.sln
+kanban-**/*.sw?
+kanban-**/package-lock.json
+kanban-**/.env

@@ -1,0 +1,16 @@
+## 1. Backend domain and persistence
+
+- [x] 1.1 Add `StoryPoints` (`1 | 2 | 3 | 5 | 8 | 13`), `storyPoints` field defaulting to `null`, and `isStoryPoints` guard in `kanban-api/src/domain/entities.ts`; extend `createTask` input with `storyPoints?` (default `null`, reject defined-but-invalid) and `editTask` patch with `storyPoints?` (accept Fibonacci or `null` to clear, reject anything else) in `kanban-api/src/domain/commands.ts` keeping `Action.EditTask` + `isEditable` gates; verify `domain/commands.test.ts` covers default-null, explicit-set, clear-to-null, invalid-reject (`0`, `4`), and frozen/terminal rejection
+- [x] 1.2 Add `storyPoints` (`Number`, `enum: [1, 2, 3, 5, 8, 13]`, `default: null`) to `taskSchema`/`TaskDoc` in `kanban-api/src/models/index.ts` and roundtrip it in `kanban-api/src/mappers/task.mapper.ts` with `doc.storyPoints ?? null` read fallback; verify `models.test.ts` and `mappers/mappers.test.ts` cover default write, explicit write, clear, and legacy-doc read as `null`
+- [x] 1.3 Accept optional `storyPoints` in `kanban-api/src/routes/tasksRouter.ts` `POST /` and `PATCH /:taskId` (validate Fibonacci-or-null, `400 validation` on invalid, omit-when-absent passthrough, explicit `null` on `PATCH` clears) and return persisted points in responses; verify `routes/tasksRouter.test.ts` covers create-default, create-explicit, create-invalid-400, edit-change, edit-clear, edit-invalid-400-unchanged
+
+## 2. Frontend badge, selectors, and summary
+
+- [x] 2.1 Add `StoryPoints` type, `storyPoints` field, and `storyPoints?` passthrough in `createTask`/`updateTask` in `kanban-front-end/src/lib/api.ts` (read fallback `?? null` where tasks are consumed); verify existing `lib` tests still pass
+- [x] 2.2 Render a points badge (`data-testid="task-story-points"`, `title` + `aria-label` with value) top-right in `kanban-front-end/src/pages/TaskCard.tsx`, hidden when `null`/missing, adding title padding so truncated text never runs under it, without moving state/badge/date/avatar/arrow; verify `TaskCard.test.tsx` asserts badge value, tooltip/a11y name, null-renders-nothing, and long-title truncation intact
+- [x] 2.3 Add a `STORY PTS` `<select aria-label="Story points">` (`--` = `null` plus `1, 2, 3, 5, 8, 13`) side by side with `PRIORITY` in a two-column row below DESCRIPTION in `kanban-front-end/src/pages/TaskModal.tsx`, defaulting to `--` on create, prefilling `task.storyPoints ?? null` on edit, and sending `storyPoints` on create plus only-on-change on edit (same delta pattern as priority, including clear-to-`--`); verify `TaskModal.test.tsx` covers create-default, edit-prefill, edit-change-sends, edit-clear-sends-null, edit-unchanged-omits, and blank-title still blocks with no request
+- [x] 2.4 Render `TOTAL: X PTS - IN PROGRESS: N TASKS (Y PTS)` (`data-testid="board-effort-summary"`, `null` counts as `0`) under the board description in `kanban-front-end/src/pages/BoardDetailPage.tsx`, recomputed from `board.tasks` on every render; verify `BoardDetailPage.test.tsx` asserts the worked example (`3`, `5`, `null` with two in progress), the empty-board zeros, and sync after refresh
+
+## 3. Suite
+
+- [x] 3.1 Run `npm test` in `kanban-api` and `npx vitest run` in `kanban-front-end` until green, then `npm run lint` and `npm run build` in both packages with no new warnings
