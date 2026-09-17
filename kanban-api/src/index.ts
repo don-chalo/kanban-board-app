@@ -5,14 +5,14 @@ import { createMongoBoardRepository, createMongoUserRepository } from "./reposit
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  console.log(`Connecting to MongoDB at ${config.mongodbUri}`);
+  console.log(`Connecting to DB`);
   await mongoose.connect(config.mongodbUri, { family: 4 });
   const app = buildApp({
     userRepo: createMongoUserRepository(),
     boardRepo: createMongoBoardRepository(),
   });
   app.listen(config.port, () => {
-    console.log(`kanban api listening on ${config.mongodbUri} port ${config.port}`);
+    console.log(`kanban api listening on port ${config.port}`);
   });
 }
 

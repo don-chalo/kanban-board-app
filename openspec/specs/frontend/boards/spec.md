@@ -204,6 +204,33 @@ When the user clicks a card's arrow, the web app SHALL show a dropdown of that t
 - **WHEN** the user moves a board to `Done` while tasks remain live and the API rejects with `board_not_done`
 - **THEN** the app shows a message identifying unfinished tasks as the cause
 
+### Requirement: Task columns text search
+The web app SHALL provide a text field on the board detail page that filters the task cards across all columns as the user types. A task SHALL remain visible when the query is contained in its title, description, lifecycle-state label, or owner email or id, matched case-insensitively; an empty query SHALL show all tasks. Column counts and the effort summary SHALL always reflect total tasks, unaffected by the search.
+
+#### Scenario: Search filters by title
+- **WHEN** the user types text contained in a task's title
+- **THEN** only matching tasks remain visible across columns
+
+#### Scenario: Search filters by description
+- **WHEN** the user types text contained in a task's description
+- **THEN** only matching tasks remain visible across columns
+
+#### Scenario: Search matches state and owner
+- **WHEN** the user types text contained in a state label or an owner email
+- **THEN** the corresponding tasks remain visible
+
+#### Scenario: Search is case-insensitive
+- **WHEN** the user types in a different case than the stored text
+- **THEN** matching tasks still remain visible
+
+#### Scenario: Clearing restores all tasks
+- **WHEN** the user clears the search field
+- **THEN** all tasks are visible again
+
+#### Scenario: Counts ignore the search
+- **WHEN** a search hides tasks
+- **THEN** column counts and the effort summary still show totals
+
 ### Requirement: Board effort summary
 The web app SHALL show an effort-summary line under the board description in the form `TOTAL: X PTS - IN PROGRESS: N TASKS (Y PTS)`, where `X` is the sum of story points over all tasks, `N` is the number of tasks in `In Progress`, and `Y` is the sum of story points over tasks in `In Progress`. Tasks with `null` or missing story points SHALL count as `0`. The line SHALL refresh with the board data (creation, edit, move) like the column counts.
 

@@ -578,6 +578,136 @@ describe('BoardDetailPage', () => {
     expect(taskArrow('First').getAttribute('disabled')).not.toBeNull()
   })
 
+  describe('task search', () => {
+    const searchableBoard = () =>
+      makeBoard({
+        tasks: [
+          { ...makeTask('task-1', 'First', 'ToDo', 'user-2'), description: 'alpha details' },
+          makeTask('task-2', 'Second', 'InProgress', 'user-1'),
+          { ...makeTask('task-3', 'Third', 'Done', 'user-2'), description: 'beta notes' },
+        ],
+      })
+
+    function setSearch(value: string) {
+      const input = container.querySelector('input[aria-label="Search tasks"]')
+      if (input === null) {
+        throw new Error('search input not found')
+      }
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    async function search(value: string) {
+      act(() => {
+        setSearch(value)
+      })
+      await flush()
+    }
+
+    it('renders the search field next to the new-task action', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      expect(container.querySelector('input[aria-label="Search tasks"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="Clear task search"]')).toBeNull()
+    })
+
+    it('filters cards by title substring', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('second')
+
+      expect(section('TO DO')?.textContent).not.toContain('FIRST')
+      expect(section('IN PROGRESS')?.textContent).toContain('SECOND')
+      expect(section('DONE')?.textContent).not.toContain('THIRD')
+    })
+
+    it('filters cards by description', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('beta')
+
+      expect(section('DONE')?.textContent).toContain('THIRD')
+      expect(section('TO DO')?.textContent).not.toContain('FIRST')
+      expect(section('IN PROGRESS')?.textContent).not.toContain('SECOND')
+    })
+
+    it('matches case-insensitively', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('FIRST')
+
+      expect(section('TO DO')?.textContent).toContain('FIRST')
+      expect(section('IN PROGRESS')?.textContent).not.toContain('SECOND')
+    })
+
+    it('matches owner email', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('bob@')
+
+      expect(section('TO DO')?.textContent).toContain('FIRST')
+      expect(section('DONE')?.textContent).toContain('THIRD')
+      expect(section('IN PROGRESS')?.textContent).not.toContain('SECOND')
+    })
+
+    it('matches state labels', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('done')
+
+      expect(section('DONE')?.textContent).toContain('THIRD')
+      expect(section('TO DO')?.textContent).not.toContain('FIRST')
+    })
+
+    it('clearing restores all cards', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('second')
+      expect(section('TO DO')?.textContent).not.toContain('FIRST')
+
+      const clear = container.querySelector('[aria-label="Clear task search"]')
+      if (clear === null) {
+        throw new Error('clear search button not found')
+      }
+      act(() => {
+        ;(clear as HTMLButtonElement).click()
+      })
+      await flush()
+
+      expect(section('TO DO')?.textContent).toContain('FIRST')
+      expect(section('IN PROGRESS')?.textContent).toContain('SECOND')
+      expect(section('DONE')?.textContent).toContain('THIRD')
+      expect(container.querySelector('[aria-label="Clear task search"]')).toBeNull()
+    })
+
+    it('keeps column counts on totals while filtering', async () => {
+      stubApi(searchableBoard())
+      renderPage()
+      await flush()
+
+      await search('second')
+
+      expect(section('TO DO')?.textContent).toContain('(1)')
+      expect(section('IN PROGRESS')?.textContent).toContain('(1)')
+      expect(section('DONE')?.textContent).toContain('(1)')
+    })
+  })
+
   it('renders a frozen board read-only: new task disabled and no task arrows', async () => {
     stubApi(makeBoard({ state: 'Blocked' }))
     renderPage()

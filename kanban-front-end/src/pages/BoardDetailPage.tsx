@@ -28,6 +28,16 @@ import TaskCard from './TaskCard'
 
 const TERMINAL_STATES: ReadonlySet<LifecycleState> = new Set(['Done', 'Cancelled'])
 
+function taskMatchesQuery(task: Task, members: Map<UserId, string>, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q.length === 0) {
+    return true
+  }
+  const ownerEmail = members.get(task.owner) ?? task.owner
+  const haystack = [task.title, task.description, STATE_LABELS[task.state], ownerEmail, task.owner]
+  return haystack.join(' ').toLowerCase().includes(q)
+}
+
 function deriveMoves(
   table: TransitionsTable,
   board: Board,
@@ -60,6 +70,7 @@ function BoardDetailPage() {
   const [failedTaskMoves, setFailedTaskMoves] = useState<Set<string>>(new Set())
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [taskQuery, setTaskQuery] = useState('')
   const [memberEntryOpen, setMemberEntryOpen] = useState(false)
   const [memberEmail, setMemberEmail] = useState('')
   const [memberSuggestions, setMemberSuggestions] = useState<UserIdentity[]>([])
@@ -448,21 +459,43 @@ function BoardDetailPage() {
               {inProgressPoints} PTS)
             </p>
 
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                type="button"
-                disabled={frozen}
-                onClick={() => setModalOpen(true)}
-                aria-label="New task"
-                className="border border-xenon px-3 py-1 font-bold tracking-widest hover:bg-xenon/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                + NEW TASK
-              </button>
-              {panelError !== null && (
-                <span role="alert" className="text-sm tracking-widest">
-                  ERR: {panelError}
-                </span>
-              )}
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={frozen}
+                  onClick={() => setModalOpen(true)}
+                  aria-label="New task"
+                  className="border border-xenon px-3 py-1 font-bold tracking-widest hover:bg-xenon/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  + NEW TASK
+                </button>
+                {panelError !== null && (
+                  <span role="alert" className="text-sm tracking-widest">
+                    ERR: {panelError}
+                  </span>
+                )}
+              </div>
+              <div className="relative w-64 shrink-0">
+                <input
+                  type="text"
+                  value={taskQuery}
+                  onChange={(event) => setTaskQuery(event.target.value)}
+                  placeholder="Search tasks..."
+                  aria-label="Search tasks"
+                  className="w-full border border-xenon bg-transparent px-3 py-1 caret-xenon outline-none placeholder:text-xenon/40 focus:ring-2 focus:ring-xenon"
+                />
+                {taskQuery.length > 0 && (
+                  <button
+                    type="button"
+                    aria-label="Clear task search"
+                    onClick={() => setTaskQuery('')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 font-bold hover:bg-xenon/10"
+                  >
+                    x
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-5 gap-3">
@@ -477,6 +510,7 @@ function BoardDetailPage() {
                   <ul className="mt-2 flex flex-col gap-2">
                     {board.tasks
                       .map((task, index) => ({ task, index }))
+                      .filter(({ task }) => taskMatchesQuery(task, members, taskQuery))
                       .filter(({ task }) => task.state === state)
                       .sort(
                         (a, b) =>
