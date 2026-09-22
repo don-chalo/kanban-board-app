@@ -17,17 +17,19 @@ const task: Task = {
   description: '',
   state: 'ToDo',
   previousState: null,
+  comments: [],
 }
 
 function renderUi(
   moves: LifecycleState[],
   members = new Map([['user-2', 'bob@example.com']]),
   options: {
-    editable?: boolean
     onEdit?: (task: Task) => void
     movesFailed?: boolean
+    task?: Task
   } = {},
 ) {
+  const shown = options.task ?? task
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -37,11 +39,10 @@ function renderUi(
       <Tooltip.Provider delayDuration={0}>
         <ul>
           <TaskCard
-            task={task}
+            task={shown}
             members={members}
             moves={moves}
             movesFailed={options.movesFailed}
-            editable={options.editable}
             onEdit={options.onEdit}
             onMoved={onMoved}
           />
@@ -77,14 +78,74 @@ afterEach(() => {
 })
 
 describe('TaskCard', () => {
-  it('shows the title (truncated), the state, and the owner avatar letter', () => {
+  it('shows the title (truncated) and the owner avatar letter without state or count', () => {
     renderUi(['InProgress'])
 
     const title = container.querySelector('p')
     expect(title?.textContent).toBe('WRITE TESTS')
     expect(title?.className).toContain('truncate')
-    expect(container.textContent).toContain('TO DO')
+    expect(container.textContent).not.toContain('TO DO')
+    expect(container.textContent).not.toContain('COMMENTS')
     expect(container.textContent).toContain('B')
+  })
+
+  it('shows the comments count only when the task has comments', () => {
+    renderUi(
+      [],
+      undefined,
+      {
+        task: {
+          ...task,
+          comments: [
+            { id: 'c-1', author: 'user-2', text: 'Hi', createdAt: '2026-09-21T10:00:00.000Z' },
+            { id: 'c-2', author: 'user-1', text: 'Hey', createdAt: '2026-09-21T11:00:00.000Z' },
+          ],
+        },
+      },
+    )
+
+    expect(container.textContent).toContain('COMMENTS (2)')
+  })
+
+  it('keeps the count line rendered but empty without comments for stable height', () => {
+    renderUi([])
+
+    const line = container.querySelector('[data-testid="task-comments-count"]')
+    expect(line).not.toBeNull()
+    expect(line?.textContent).not.toContain('COMMENTS')
+    expect(line?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('reveals story points through the Radix tooltip on hover', async () => {
+    vi.useFakeTimers()
+    try {
+      renderUi([], undefined, { task: { ...task, storyPoints: 5 } })
+      const badge = container.querySelector('[data-testid="task-story-points"]')
+      if (badge === null) {
+        throw new Error('story points badge not found')
+      }
+      expect(badge.textContent).toBe('5')
+      act(() => {
+        badge.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(50)
+      })
+      await flush()
+
+      expect(document.body.textContent).toContain('Story points: 5')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the start date without a native hover title', () => {
+    renderUi([], undefined, { task: { ...task, startedAt: '2026-09-16T10:00:00.000Z' } })
+
+    const date = container.querySelector('[data-testid="task-started-at"]')
+    expect(date?.textContent).toBe('2026-09-16')
+    expect(date?.getAttribute('title')).toBeNull()
+    expect(date?.getAttribute('aria-label')).toBe('Started 2026-09-16T10:00:00.000Z')
   })
 
   it('shows the full email in a tooltip when the avatar is hovered', async () => {
@@ -149,16 +210,16 @@ describe('TaskCard', () => {
     expect(onMoved).toHaveBeenCalledWith('task-1', 'InProgress')
   })
 
-  it('renders the title as an editable button when editable with a handler', () => {
-    renderUi([], undefined, { editable: true, onEdit: vi.fn() })
+  it('renders the title as a button opening the modal when a handler is provided', () => {
+    renderUi([], undefined, { onEdit: vi.fn() })
 
     expect(container.querySelector('[aria-label="Edit task Write tests"]')).not.toBeNull()
-    expect((container.querySelector('p') as HTMLElement)?.textContent).not.toContain('WRITE TESTS')
+    expect(container.textContent).not.toContain('COMMENTS')
   })
 
-  it('reports a click on the editable title with the task', () => {
+  it('reports a click on the title with the task', () => {
     const onEdit = vi.fn()
-    renderUi([], undefined, { editable: true, onEdit })
+    renderUi([], undefined, { onEdit })
 
     const button = container.querySelector('[aria-label="Edit task Write tests"]')
     if (button === null) {
@@ -171,8 +232,8 @@ describe('TaskCard', () => {
     expect(onEdit).toHaveBeenCalledWith(task)
   })
 
-  it('falls back to a plain title when editable but no handler is provided', () => {
-    renderUi([], undefined, { editable: true })
+  it('falls back to a plain title when no handler is provided', () => {
+    renderUi([])
 
     expect(container.querySelector('[aria-label="Edit task Write tests"]')).toBeNull()
     expect(container.querySelector('p')?.textContent).toBe('WRITE TESTS')

@@ -1,5 +1,14 @@
 import { LifecycleState, Task } from "../domain/entities";
-import { TaskDoc } from "../models";
+import type { Comment } from "../domain/entities";
+import { CommentDoc, TaskDoc } from "../models";
+
+function commentDocToDomain(doc: CommentDoc): Comment {
+  return { id: doc._id, author: doc.author, text: doc.text, createdAt: doc.createdAt };
+}
+
+function commentToDoc(comment: Comment): CommentDoc {
+  return { _id: comment.id, author: comment.author, text: comment.text, createdAt: comment.createdAt };
+}
 
 export function taskDocToDomain(doc: TaskDoc): Task {
   return {
@@ -14,6 +23,7 @@ export function taskDocToDomain(doc: TaskDoc): Task {
     priority: (doc.priority as Task["priority"] | undefined) ?? "medium",
     startedAt: doc.startedAt ?? null,
     storyPoints: (doc.storyPoints as Task["storyPoints"] | undefined) ?? null,
+    comments: (doc.comments ?? []).map(commentDocToDomain),
   };
 }
 
@@ -30,5 +40,6 @@ export function taskToDoc(task: Task): TaskDoc {
     priority: task.priority ?? "medium",
     startedAt: task.startedAt ?? null,
     storyPoints: task.storyPoints ?? null,
+    comments: task.comments.map(commentToDoc),
   };
 }

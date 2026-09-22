@@ -30,6 +30,7 @@ export function boardCanBeDone(board: Board): boolean {
 }
 
 export function allowedTaskTransitions(board: Board, task: Task): LifecycleState[] {
+  if (board.state !== LifecycleState.InProgress) return [];
   if (!isEditable(board, task)) return [];
   return allowedTransitions(task);
 }

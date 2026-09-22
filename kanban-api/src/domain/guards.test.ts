@@ -80,7 +80,7 @@ describe("isEditable", () => {
 
 describe("allowedTaskTransitions", () => {
   it("lists the next states for a live task on a live board", () => {
-    const board = makeBoard();
+    const board = makeBoard({ state: LifecycleState.InProgress });
     expect(allowedTaskTransitions(board, makeTask())).toEqual([
       LifecycleState.InProgress,
       LifecycleState.Cancelled,
@@ -93,7 +93,7 @@ describe("allowedTaskTransitions", () => {
   });
 
   it("returns nothing for a terminal task on a live board", () => {
-    const board = makeBoard();
+    const board = makeBoard({ state: LifecycleState.InProgress });
     expect(allowedTaskTransitions(board, makeTask({ state: LifecycleState.Done }))).toEqual([]);
     expect(allowedTaskTransitions(board, makeTask({ state: LifecycleState.Cancelled }))).toEqual([]);
   });
@@ -109,8 +109,13 @@ describe("allowedTaskTransitions", () => {
     }
   });
 
+  it("returns nothing for a live task on a board that is not In Progress", () => {
+    const board = makeBoard({ state: LifecycleState.ToDo });
+    expect(allowedTaskTransitions(board, makeTask())).toEqual([]);
+  });
+
   it("returns In Progress for a Blocked task with InProgress previous state", () => {
-    const board = makeBoard();
+    const board = makeBoard({ state: LifecycleState.InProgress });
     expect(
       allowedTaskTransitions(board, makeTask({ state: LifecycleState.Blocked, previousState: LifecycleState.ToDo })),
     ).toEqual([]);

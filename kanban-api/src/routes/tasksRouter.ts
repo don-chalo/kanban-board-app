@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Request, Router } from "express";
 import { allowedTaskTransitions } from "../domain/guards";
 import { isStoryPoints, isTaskPriority } from "../domain/entities";
-import { createTask, deleteTask, editTask, moveTask, reassignTaskOwner } from "../domain/commands";
+import { createTask, addTaskComment, deleteTask, editTask, editTaskComment, moveTask, reassignTaskOwner, removeTaskComment } from "../domain/commands";
 import { BoardRepository } from "../repositories";
 import { ApiError } from "../middleware/errorHandler";
 import { assertBoardMember, parseLifecycleState, requireActor, requireBoard, requireTask } from "./helpers";
@@ -126,6 +126,42 @@ export function createTasksRouter(boardRepo: BoardRepository): Router {
     assertBoardMember(board, requireActor(req));
     const task = requireTask(board, req.params.taskId);
     res.json(allowedTaskTransitions(board, task));
+  });
+
+  router.post("/:taskId/comments", async (req, res) => {
+    const board = await requireBoard(boardRepo, boardIdOf(req));
+    assertBoardMember(board, requireActor(req));
+    const task = requireTask(board, req.params.taskId);
+    const comment = addTaskComment(board, requireActor(req), task.id, {
+      id: randomUUID(),
+      text: req.body?.text,
+    });
+    await boardRepo.saveBoardAggregate(board);
+    res.status(201).json(comment);
+  });
+
+  router.patch("/:taskId/comments/:commentId", async (req, res) => {
+    const board = await requireBoard(boardRepo, boardIdOf(req));
+    assertBoardMember(board, requireActor(req));
+    const task = requireTask(board, req.params.taskId);
+    const comment = editTaskComment(
+      board,
+      requireActor(req),
+      task.id,
+      req.params.commentId,
+      req.body?.text,
+    );
+    await boardRepo.saveBoardAggregate(board);
+    res.json(comment);
+  });
+
+  router.delete("/:taskId/comments/:commentId", async (req, res) => {
+    const board = await requireBoard(boardRepo, boardIdOf(req));
+    assertBoardMember(board, requireActor(req));
+    const task = requireTask(board, req.params.taskId);
+    removeTaskComment(board, requireActor(req), task.id, req.params.commentId);
+    await boardRepo.saveBoardAggregate(board);
+    res.json({});
   });
 
   return router;

@@ -147,11 +147,15 @@ The web app SHALL render one column per lifecycle state (To Do, In Progress, Don
 - **THEN** they render in their original relative order
 
 ### Requirement: Task card
-A task card SHALL show the task's title (truncated when long) and its lifecycle state, an owner avatar showing the first letter of the owner's email with a tooltip revealing the full email, a right-side arrow that appears when the pointer hovers the card, and an always-visible priority badge showing only the initial letter (`L` for `low`, `M` for `medium`, `H` for `high`, `U` for `urgent`). The badge SHALL expose the full priority word via its accessible name and tooltip. A task without a priority SHALL render as `M`. The card SHALL show the start date as `YYYY-MM-DD` (the first 10 characters of `startedAt`) to the left of the owner avatar when `startedAt` is set; when `startedAt` is `null` or missing it SHALL show no date. The date SHALL expose the full ISO value via its accessible name and tooltip. The card SHALL show a story-points badge in the top-right corner with the estimate value when `storyPoints` is set; when `storyPoints` is `null` or missing it SHALL show no badge. The badge SHALL expose its value via its accessible name and tooltip. The title SHALL leave room so it does not run under the corner badge.
+A task card SHALL show the task's title (truncated when long) and, when the task has comments, a plain-text `COMMENTS (N)` count; with no comments it SHALL show no count and no state. It SHALL show an owner avatar showing the first letter of the owner's email with a tooltip revealing the full email, a right-side arrow that appears when the pointer hovers the card, and an always-visible priority badge showing only the initial letter (`L` for `low`, `M` for `medium`, `H` for `high`, `U` for `urgent`). The badge SHALL expose the full priority word via its accessible name and tooltip. A task without a priority SHALL render as `M`. The card SHALL show the start date as `YYYY-MM-DD` (the first 10 characters of `startedAt`) to the left of the owner avatar when `startedAt` is set; when `startedAt` is `null` or missing it SHALL show no date. The date SHALL expose the full ISO value via its accessible name only, with no native hover title. The card SHALL show a story-points badge in the top-right corner with the estimate value when `storyPoints` is set; when `storyPoints` is `null` or missing it SHALL show no badge. The badge SHALL expose its value via its accessible name and a Radix tooltip. The title SHALL leave room so it does not run under the corner badge.
 
 #### Scenario: Card shows title, state, and owner avatar
 - **WHEN** a task card renders
-- **THEN** the title, the state, and the owner's avatar are visible, and hovering the avatar shows the owner's email
+- **THEN** the title and the owner's avatar are visible (the lifecycle state is no longer shown; a `COMMENTS (N)` count renders only when the task has comments), and hovering the avatar shows the owner's email
+
+#### Scenario: Card without comments shows no count or state
+- **WHEN** a task card without comments renders
+- **THEN** no count and no lifecycle state are visible on the card
 
 #### Scenario: Long titles are truncated
 - **WHEN** a task title exceeds the column width
@@ -167,7 +171,7 @@ A task card SHALL show the task's title (truncated when long) and its lifecycle 
 
 #### Scenario: Start date shows left of the avatar
 - **WHEN** a task with `startedAt` `2026-09-16T10:00:00.000Z` renders
-- **THEN** the card shows `2026-09-16` to the left of the avatar with the full ISO in its tooltip and accessible name
+- **THEN** the card shows `2026-09-16` to the left of the avatar with the full ISO in its accessible name and no native hover title
 
 #### Scenario: Missing start date shows nothing
 - **WHEN** a task with `startedAt null` renders
@@ -175,17 +179,17 @@ A task card SHALL show the task's title (truncated when long) and its lifecycle 
 
 #### Scenario: Estimate badge shows in the corner
 - **WHEN** a task with `5` story points renders
-- **THEN** the card shows a `5` badge in the top-right corner with its value in the tooltip and accessible name
+- **THEN** the card shows a `5` badge in the top-right corner with its value in the Radix tooltip and accessible name
 
 #### Scenario: Missing estimate shows no badge
 - **WHEN** a task with `storyPoints null` renders
 - **THEN** the card shows no points badge
 
 ### Requirement: Task state move
-When the user clicks a card's arrow, the web app SHALL show a dropdown of that task's legal target states derived from the cached transitions table plus the loaded board (`board.state` frozen check, task terminal check); choosing one SHALL submit the move and refresh the board so the card relocates to the new column. When no moves are legal the arrow SHALL NOT be shown; when the lookup of the transitions table fails the arrow SHALL be shown but disabled. Board `Done` MAY be offered optimistically; a `409 board_not_done` rejection SHALL surface a distinct "tasks remain" message rather than the generic move error.
+When the user clicks a card's arrow, the web app SHALL show a dropdown of that task's legal target states derived from the cached transitions table plus the loaded board (`board.state` frozen check, task terminal check, and board-progress check requiring `In Progress`); choosing one SHALL submit the move and refresh the board so the card relocates to the new column. When no moves are legal the arrow SHALL NOT be shown; when the lookup of the transitions table fails the arrow SHALL be shown but disabled. Board `Done` MAY be offered optimistically; a `409 board_not_done` rejection SHALL surface a distinct "tasks remain" message rather than the generic move error. A `409 board_not_in_progress` rejection SHALL surface a distinct "start the board first" message.
 
 #### Scenario: Legal moves are offered
-- **WHEN** the user clicks a card's arrow on an editable task
+- **WHEN** the user clicks a card's arrow on an editable task on a board in `In Progress`
 - **THEN** a dropdown lists the task's legal target states
 
 #### Scenario: A move relocates the task
@@ -196,6 +200,10 @@ When the user clicks a card's arrow, the web app SHALL show a dropdown of that t
 - **WHEN** the task or the board is frozen (`Blocked`, `Cancelled`, `Done`) or the task is terminal
 - **THEN** the card presents no arrow
 
+#### Scenario: No arrow while the board is not In Progress
+- **WHEN** the board is in `To Do`
+- **THEN** task cards present no move arrow
+
 #### Scenario: Failed moves lookup keeps a disabled arrow
 - **WHEN** the request for the transitions table fails
 - **THEN** the card shows a disabled arrow
@@ -203,6 +211,10 @@ When the user clicks a card's arrow, the web app SHALL show a dropdown of that t
 #### Scenario: Premature board Done explains the gate
 - **WHEN** the user moves a board to `Done` while tasks remain live and the API rejects with `board_not_done`
 - **THEN** the app shows a message identifying unfinished tasks as the cause
+
+#### Scenario: Gated task move explains the board-progress rule
+- **WHEN** a task move is rejected with `board_not_in_progress`
+- **THEN** the app shows a message identifying that the board must be started first
 
 ### Requirement: Task columns text search
 The web app SHALL provide a text field on the board detail page that filters the task cards across all columns as the user types. A task SHALL remain visible when the query is contained in its title, description, lifecycle-state label, or owner email or id, matched case-insensitively; an empty query SHALL show all tasks. Column counts and the effort summary SHALL always reflect total tasks, unaffected by the search.
@@ -247,7 +259,7 @@ The web app SHALL show an effort-summary line under the board description in the
 - **THEN** the summary reflects the refreshed task list
 
 ### Requirement: Task creation and editing
-The web app SHALL provide a `TaskModal` for creating and editing tasks with TITLE and DESCRIPTION fields, a PRIORITY selector offering `low`, `medium`, `high`, and `urgent`, a STORY PTS selector offering `--` (unestimated) plus `1`, `2`, `3`, `5`, `8`, and `13`, and an OWNER selector for managers. PRIORITY and STORY PTS SHALL sit side by side in one row. On create both selectors SHALL default to `medium` and `--` respectively; on edit they SHALL prefill from the task (missing reads as `medium` / `null`) and SHALL submit only when changed or on create. A blank title SHALL be rejected inline with no request. The owner field SHALL be shown only to the board creator or owner; for other members the task owner is the member themselves. The owner list SHALL include the board Creator, the Owner, and all Associated members, including the acting user selecting themself; the unselected option SHALL be labeled `(me)`. The modal SHALL be prefilled with the task's title, description, and current owner on edit; confirming SHALL save via the API and refetch the board so the updated attributes render. The owner field SHALL be editable only by the board creator or owner; a non-manager who owns the task edits the title, description, priority, and estimate only. On a frozen board (`Blocked`, `Cancelled`, `Done`) or on a terminal task the edit action SHALL NOT be offered.
+The web app SHALL provide a `TaskModal` for creating and editing tasks with TITLE and DESCRIPTION fields, a PRIORITY selector offering `low`, `medium`, `high`, and `urgent`, a STORY PTS selector offering `--` (unestimated) plus `1`, `2`, `3`, `5`, `8`, and `13`, and an OWNER selector for managers. PRIORITY and STORY PTS SHALL sit side by side in one row. On create both selectors SHALL default to `medium` and `--` respectively; on edit they SHALL prefill from the task (missing reads as `medium` / `null`) and SHALL submit only when changed or on create. A blank title SHALL be rejected inline with no request. The owner field SHALL be shown only to the board creator or owner; for other members the task owner is the member themselves. The owner list SHALL include the board Creator, the Owner, and all Associated members, including the acting user selecting themself; the unselected option SHALL be labeled `(me)`. The modal SHALL be prefilled with the task's title, description, and current owner on edit; confirming SHALL save via the API and refetch the board so the updated attributes render. The owner field SHALL be editable only by the board creator or owner; a non-manager who owns the task edits the title, description, priority, and estimate only. The task title SHALL always open the task modal; on a frozen board (`Blocked`, `Cancelled`, `Done`) or on a terminal task the edit form SHALL be shown disabled with no SAVE, and the modal SHALL close via a top-right X instead of a CLOSE button.
 
 #### Scenario: A task is created into To Do
 - **WHEN** the user enters a title (and optionally a description and owner) and confirms
@@ -310,12 +322,16 @@ The web app SHALL provide a `TaskModal` for creating and editing tasks with TITL
 - **THEN** an inline error is shown and no request is sent
 
 #### Scenario: Task editing is hidden for other members
-- **WHEN** a member who is neither the task owner nor the board creator or owner views the task
-- **THEN** no edit action is offered on the task
+- **WHEN** a member who is neither the task owner nor the board creator or owner activates the task
+- **THEN** the edit form is shown disabled with no SAVE, but the task modal opens with its comments
 
 #### Scenario: Frozen boards hide task editing
 - **WHEN** a board is `Blocked`, `Cancelled`, or `Done`, or the task is terminal
-- **THEN** no edit action is offered on the task
+- **THEN** the edit form is shown disabled with no SAVE; the task modal opens with the comments thread only
+
+#### Scenario: Modal closes via the top-right X
+- **WHEN** the user activates the X in the task modal
+- **THEN** the modal closes; no CLOSE button is offered
 
 ### Requirement: Read-only board rendering
 The web app SHALL render a board in `Blocked`, `Cancelled`, or `Done` as read-only: the new-task action and task move arrows SHALL be disabled, and on terminal boards the state select SHALL also be disabled.
@@ -447,3 +463,85 @@ The web app SHALL let the Board Creator/Owner reassign the board owner by activa
 #### Scenario: Frozen board hides the owner dropdown
 - **WHEN** the Board Creator/Owner opens a board in `Blocked`, `Cancelled`, or `Done`
 - **THEN** no owner dropdown is offered
+
+### Requirement: Board comments section
+The web app SHALL render a `COMMENTS (n)` section below the task columns on the board detail page, with a minimum height on the columns grid so the header stays visible. The section SHALL show an entry input on top with an add action, followed by the comment list newest-first, each item showing the author email, timestamp, and text with edit and remove actions visible only to the comment author or the Board Creator/Owner. Creating, editing, and removing SHALL work on frozen boards. Blank submissions SHALL be rejected inline with no request; removing SHALL ask for confirmation first. Every comment mutation (create, edit, remove) SHALL show a busy state disabling re-entry while the request is in flight.
+
+#### Scenario: Comments are listed newest-first
+- **WHEN** a board has comments
+- **THEN** they render below the columns, newest first, with author, timestamp, and text
+
+#### Scenario: Member adds a comment
+- **WHEN** a member enters text and confirms
+- **THEN** the comment is created via the API and appears first in the list
+
+#### Scenario: Blank comment is rejected inline
+- **WHEN** the user confirms with blank text
+- **THEN** an error is shown and no request is sent
+
+#### Scenario: Author edits their comment
+- **WHEN** the author activates edit, changes the text, and saves
+- **THEN** the updated text renders via the API result
+
+#### Scenario: Edit is hidden from other non-manager members
+- **WHEN** a member who is neither the author nor the Board Creator/Owner views a comment
+- **THEN** no edit or remove actions are offered on it
+
+#### Scenario: Removal asks for confirmation
+- **WHEN** the author or a manager activates remove and confirms
+- **THEN** the comment is removed via the API and disappears from the list
+
+#### Scenario: Comments work on a frozen board
+- **WHEN** the board is `Blocked`, `Cancelled`, or `Done`
+- **THEN** the section still offers create, edit, and remove per the rules above
+
+#### Scenario: Mutations show busy state
+- **WHEN** a board comment create, edit, or remove request is in flight
+- **THEN** the entry or row shows busy, re-entry is disabled, and no duplicate request is sent
+
+### Requirement: Task modal comments section
+The web app SHALL render an expandable `COMMENTS (N)` section below the SAVE row of the task modal in edit mode (never in the "New task" modal). Expanding SHALL collapse the edit form and show an entry input on top with the comment list newest-first; each item SHALL show the author email, timestamp, and text with edit and remove actions visible only to the comment author, the Board Creator/Owner, or the task owner. The edit form SHALL additionally be independently collapsible, and the modal SHALL NOT exceed the viewport height with scrolling confined to the comment list. No SAVE button SHALL be shown while comments are visible; comments SHALL be created with Enter. Every comment mutation (create, edit, remove) SHALL show a busy state disabling re-entry while the request is in flight. Blank submissions SHALL be rejected inline with no request; removing SHALL ask for confirmation first. The section SHALL work on frozen boards and terminal tasks.
+
+#### Scenario: Comments section expands over the form
+- **WHEN** the user activates `COMMENTS (N)` in the task modal
+- **THEN** the edit form collapses and the comment thread is shown
+
+#### Scenario: Edit form collapses independently
+- **WHEN** the user collapses the edit form without expanding comments
+- **THEN** the form hides while the modal stays open with its toggles
+
+#### Scenario: Scroll stays inside the comment list
+- **WHEN** the thread overflows the bounded modal
+- **THEN** only the comment list scrolls; the entry input and toggles stay fixed
+
+#### Scenario: Mutations show busy state
+- **WHEN** a comment create, edit, or remove request is in flight
+- **THEN** the entry or row shows busy, re-entry is disabled, and no duplicate request is sent
+
+#### Scenario: Member adds a comment with Enter
+- **WHEN** a member types text and presses Enter
+- **THEN** the comment is created via the API and appears first in the list
+
+#### Scenario: No SAVE while comments are visible
+- **WHEN** the comments section is expanded
+- **THEN** no SAVE button is shown
+
+#### Scenario: Author edits their comment
+- **WHEN** the author activates edit, changes the text, and saves
+- **THEN** the updated text renders via the API result
+
+#### Scenario: Task owner edits a comment on their task
+- **WHEN** the task owner submits new valid text on another member's comment
+- **THEN** the comment's text is updated
+
+#### Scenario: Edit is hidden from unrelated members
+- **WHEN** a member who is neither the author, the Board Creator/Owner, nor the task owner views a comment
+- **THEN** no edit or remove actions are offered on it
+
+#### Scenario: Removal asks for confirmation
+- **WHEN** the author, a manager, or the task owner activates remove and confirms
+- **THEN** the comment is removed via the API and disappears from the list
+
+#### Scenario: Comments work on frozen boards and terminal tasks
+- **WHEN** the task cannot be edited due to a frozen board or terminal state
+- **THEN** the modal still offers the comments thread with create, edit, and remove per the rules above

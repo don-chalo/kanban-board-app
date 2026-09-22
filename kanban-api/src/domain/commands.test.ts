@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { LifecycleState } from "./entities";
 import {
+  addComment,
+  addTaskComment,
   createBoard,
   createTask,
   deleteTask,
+  editComment,
   editTask,
+  editTaskComment,
   manageBoard,
   moveBoard,
   moveTask,
   reassignBoardOwner,
   reassignTaskOwner,
+  removeComment,
+  removeTaskComment,
 } from "./commands";
 import { DomainError } from "./errors";
 import type { DomainErrorCode } from "./errors";
@@ -18,6 +24,7 @@ import { alice, bob, carol } from "./fixtures";
 let seq = 0;
 const bid = () => `board-${++seq}`;
 const tid = () => `task-${++seq}`;
+const cid = () => `comment-${++seq}`;
 
 function expectDomainError(fn: () => void, code: DomainErrorCode) {
   let caught: unknown;
@@ -39,6 +46,12 @@ function makeTestBoard() {
   return board;
 }
 
+function makeStartedBoard() {
+  const board = makeTestBoard();
+  moveBoard(board, alice, LifecycleState.InProgress);
+  return board;
+}
+
 function taskById(board: ReturnType<typeof makeTestBoard>, index: number) {
   return board.tasks[index];
 }
@@ -52,6 +65,7 @@ describe("createBoard", () => {
     expect(board.state).toBe(LifecycleState.ToDo);
     expect(board.previousState).toBeNull();
     expect(board.tasks).toEqual([]);
+    expect(board.comments).toEqual([]);
   });
 });
 
@@ -113,6 +127,7 @@ describe("createTask", () => {
 describe("moveTask", () => {
   it("moves a task through the happy path to Done", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.InProgress);
     expect(task.state).toBe(LifecycleState.InProgress);
@@ -120,8 +135,19 @@ describe("moveTask", () => {
     expect(task.state).toBe(LifecycleState.Done);
   });
 
+  it("rejects moves while the board is not In Progress", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    expectDomainError(
+      () => moveTask(board, alice, task.id, LifecycleState.InProgress),
+      "board_not_in_progress",
+    );
+    expect(task.state).toBe(LifecycleState.ToDo);
+  });
+
   it("rejects blocking a To Do task", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     expectDomainError(
       () => moveTask(board, alice, task.id, LifecycleState.Blocked),
@@ -131,6 +157,7 @@ describe("moveTask", () => {
 
   it("blocks and unblocks an In Progress task back to In Progress", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.InProgress);
     moveTask(board, alice, task.id, LifecycleState.Blocked);
@@ -141,6 +168,7 @@ describe("moveTask", () => {
 
   it("repels backtracking and cross transitions", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.InProgress);
     expectDomainError(
@@ -160,6 +188,7 @@ describe("moveTask", () => {
 
   it("refuses to move a terminal task", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.Cancelled);
     expectDomainError(
@@ -181,6 +210,7 @@ describe("moveTask", () => {
 
   it("lets an Associated owner move only their own task", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const carolTask = taskById(board, 1);
     const aliceTask = taskById(board, 0);
     moveTask(board, carol, carolTask.id, LifecycleState.InProgress);
@@ -195,12 +225,12 @@ describe("moveTask", () => {
 describe("moveBoard", () => {
   it("moves the board through the happy path to Done", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     let task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.InProgress);
     moveTask(board, alice, task.id, LifecycleState.Done);
     task = taskById(board, 1);
     moveTask(board, alice, task.id, LifecycleState.Cancelled);
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Done);
     expect(board.state).toBe(LifecycleState.Done);
   });
@@ -275,6 +305,7 @@ describe("editTask", () => {
 
   it("rejects editing a terminal task", () => {
     const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
     const task = taskById(board, 0);
     moveTask(board, alice, task.id, LifecycleState.InProgress);
     moveTask(board, alice, task.id, LifecycleState.Done);
@@ -390,8 +421,7 @@ describe("reassignBoardOwner", () => {
 });
 
 describe("deleteTask", () => {
-  it("lets the Board Owner delete a task permanently", () => {
-    const board = makeTestBoard();
+  it("lets the Board Owner delete a task permanently", () => {    const board = makeTestBoard();
     const task = taskById(board, 0);
     deleteTask(board, alice, task.id);
     expect(board.tasks).not.toContain(task);
@@ -417,6 +447,247 @@ describe("deleteTask", () => {
     moveBoard(board, alice, LifecycleState.Blocked);
     const task = taskById(board, 0);
     expectDomainError(() => deleteTask(board, alice, task.id), "read_only");
+  });
+});
+
+describe("board comments", () => {
+  it("lets any member add a comment stamping author and time", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Looks good" }, "2026-09-21T10:00:00.000Z");
+    expect(comment).toEqual({
+      id: comment.id,
+      author: bob,
+      text: "Looks good",
+      createdAt: "2026-09-21T10:00:00.000Z",
+    });
+    expect(board.comments).toContain(comment);
+  });
+
+  it("rejects comments from non-members", () => {
+    const board = makeTestBoard();
+    expectDomainError(
+      () => addComment(board, "user-outsider", { id: cid(), text: "Hi" }),
+      "unauthorized",
+    );
+    expect(board.comments).toHaveLength(0);
+  });
+
+  it("rejects blank and overlong text", () => {
+    const board = makeTestBoard();
+    expectDomainError(() => addComment(board, bob, { id: cid(), text: "   " }), "validation");
+    expectDomainError(
+      () => addComment(board, bob, { id: cid(), text: "x".repeat(2001) }),
+      "validation",
+    );
+    expect(board.comments).toHaveLength(0);
+  });
+
+  it("lets the author edit their comment", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Draft" });
+    const updated = editComment(board, bob, comment.id, "Final");
+    expect(updated.text).toBe("Final");
+    expect(board.comments[0].text).toBe("Final");
+  });
+
+  it("lets a manager edit another member's comment", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Draft" });
+    editComment(board, alice, comment.id, "Edited by manager");
+    expect(board.comments[0].text).toBe("Edited by manager");
+  });
+
+  it("rejects edits from non-authors without a manager role", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Draft" });
+    expectDomainError(() => editComment(board, carol, comment.id, "Hijack"), "unauthorized");
+    expect(board.comments[0].text).toBe("Draft");
+  });
+
+  it("rejects edits with invalid text", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Draft" });
+    expectDomainError(() => editComment(board, bob, comment.id, "  "), "validation");
+    expect(board.comments[0].text).toBe("Draft");
+  });
+
+  it("lets the author and managers remove comments", () => {
+    const board = makeTestBoard();
+    const own = addComment(board, bob, { id: cid(), text: "Mine" });
+    removeComment(board, bob, own.id);
+    expect(board.comments).toHaveLength(0);
+
+    const other = addComment(board, bob, { id: cid(), text: "Theirs" });
+    removeComment(board, alice, other.id);
+    expect(board.comments).toHaveLength(0);
+  });
+
+  it("rejects removal from non-authors without a manager role", () => {
+    const board = makeTestBoard();
+    const comment = addComment(board, bob, { id: cid(), text: "Mine" });
+    expectDomainError(() => removeComment(board, carol, comment.id), "unauthorized");
+    expect(board.comments).toHaveLength(1);
+  });
+
+  it("rejects edits and removals of missing comments", () => {
+    const board = makeTestBoard();
+    expectDomainError(() => editComment(board, alice, "comment-ghost", "x"), "not_found");
+    expectDomainError(() => removeComment(board, alice, "comment-ghost"), "not_found");
+  });
+
+  it("allows full CRUD on a frozen board", () => {
+    const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
+    moveBoard(board, alice, LifecycleState.Blocked);
+    const comment = addComment(board, bob, { id: cid(), text: "Frozen note" });
+    editComment(board, bob, comment.id, "Edited frozen");
+    expect(board.comments[0].text).toBe("Edited frozen");
+    removeComment(board, alice, comment.id);
+    expect(board.comments).toHaveLength(0);
+  });
+});
+
+describe("task comments", () => {
+  it("lets any member add a comment stamping author and time", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    const comment = addTaskComment(
+      board,
+      bob,
+      task.id,
+      { id: cid(), text: "On it" },
+      "2026-09-21T10:00:00.000Z",
+    );
+    expect(comment).toEqual({
+      id: comment.id,
+      author: bob,
+      text: "On it",
+      createdAt: "2026-09-21T10:00:00.000Z",
+    });
+    expect(task.comments).toContain(comment);
+  });
+
+  it("rejects comments from non-members and on missing tasks", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    expectDomainError(
+      () => addTaskComment(board, "user-outsider", task.id, { id: cid(), text: "Hi" }),
+      "unauthorized",
+    );
+    expectDomainError(
+      () => addTaskComment(board, bob, "task-ghost", { id: cid(), text: "Hi" }),
+      "not_found",
+    );
+    expect(task.comments).toHaveLength(0);
+  });
+
+  it("rejects blank and overlong text", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    expectDomainError(
+      () => addTaskComment(board, bob, task.id, { id: cid(), text: "   " }),
+      "validation",
+    );
+    expectDomainError(
+      () => addTaskComment(board, bob, task.id, { id: cid(), text: "x".repeat(2001) }),
+      "validation",
+    );
+    expect(task.comments).toHaveLength(0);
+  });
+
+  it("lets the author edit their comment", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    const comment = addTaskComment(board, bob, task.id, { id: cid(), text: "Draft" });
+    editTaskComment(board, bob, task.id, comment.id, "Final");
+    expect(task.comments[0].text).toBe("Final");
+  });
+
+  it("lets a board manager edit another member's comment", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    const comment = addTaskComment(board, bob, task.id, { id: cid(), text: "Draft" });
+    editTaskComment(board, alice, task.id, comment.id, "Edited by manager");
+    expect(task.comments[0].text).toBe("Edited by manager");
+  });
+
+  it("lets the task owner edit another member's comment on their task", () => {
+    const board = makeTestBoard();
+    const carolTask = taskById(board, 1);
+    const comment = addTaskComment(board, bob, carolTask.id, { id: cid(), text: "Draft" });
+    editTaskComment(board, carol, carolTask.id, comment.id, "Edited by owner");
+    expect(carolTask.comments[0].text).toBe("Edited by owner");
+  });
+
+  it("rejects edits from members with no power over the thread", () => {
+    const board = makeTestBoard();
+    const aliceTask = taskById(board, 0);
+    const comment = addTaskComment(board, bob, aliceTask.id, { id: cid(), text: "Draft" });
+    expectDomainError(
+      () => editTaskComment(board, carol, aliceTask.id, comment.id, "Hijack"),
+      "unauthorized",
+    );
+    expect(aliceTask.comments[0].text).toBe("Draft");
+  });
+
+  it("lets the author, managers, and the task owner remove comments", () => {
+    const board = makeTestBoard();
+    const aliceTask = taskById(board, 0);
+    const carolTask = taskById(board, 1);
+
+    const own = addTaskComment(board, bob, aliceTask.id, { id: cid(), text: "Mine" });
+    removeTaskComment(board, bob, aliceTask.id, own.id);
+    expect(aliceTask.comments).toHaveLength(0);
+
+    const managed = addTaskComment(board, bob, aliceTask.id, { id: cid(), text: "Theirs" });
+    removeTaskComment(board, alice, aliceTask.id, managed.id);
+    expect(aliceTask.comments).toHaveLength(0);
+
+    const owned = addTaskComment(board, bob, carolTask.id, { id: cid(), text: "On my task" });
+    removeTaskComment(board, carol, carolTask.id, owned.id);
+    expect(carolTask.comments).toHaveLength(0);
+  });
+
+  it("rejects removal from members with no power over the thread", () => {
+    const board = makeTestBoard();
+    const aliceTask = taskById(board, 0);
+    const comment = addTaskComment(board, bob, aliceTask.id, { id: cid(), text: "Mine" });
+    expectDomainError(
+      () => removeTaskComment(board, carol, aliceTask.id, comment.id),
+      "unauthorized",
+    );
+    expect(aliceTask.comments).toHaveLength(1);
+  });
+
+  it("rejects edits and removals of missing tasks or comments", () => {
+    const board = makeTestBoard();
+    const task = taskById(board, 0);
+    expectDomainError(
+      () => editTaskComment(board, alice, "task-ghost", "comment-ghost", "x"),
+      "not_found",
+    );
+    expectDomainError(
+      () => editTaskComment(board, alice, task.id, "comment-ghost", "x"),
+      "not_found",
+    );
+    expectDomainError(
+      () => removeTaskComment(board, alice, task.id, "comment-ghost"),
+      "not_found",
+    );
+  });
+
+  it("allows full CRUD on a frozen board and a terminal task", () => {
+    const board = makeTestBoard();
+    moveBoard(board, alice, LifecycleState.InProgress);
+    const task = taskById(board, 0);
+    moveTask(board, alice, task.id, LifecycleState.InProgress);
+    moveTask(board, alice, task.id, LifecycleState.Done);
+    moveBoard(board, alice, LifecycleState.Blocked);
+    const comment = addTaskComment(board, bob, task.id, { id: cid(), text: "Frozen note" });
+    editTaskComment(board, bob, task.id, comment.id, "Edited frozen");
+    expect(task.comments[0].text).toBe("Edited frozen");
+    removeTaskComment(board, alice, task.id, comment.id);
+    expect(task.comments).toHaveLength(0);
   });
 });
 
@@ -471,9 +742,9 @@ describe("manageBoard", () => {
       const board = createBoard(alice, { id: bid(), title: "Board" });
       manageBoard(board, alice, { kind: "addMember", member: bob });
       const task = createTask(board, bob, { id: tid(), title: "Task" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, bob, task.id, LifecycleState.InProgress);
       moveTask(board, bob, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       expectDomainError(
         () => manageBoard(board, alice, { kind: "removeMember", member: bob }),
@@ -496,10 +767,10 @@ describe("manageBoard", () => {
   it("rejects adding an Associated member on terminal boards", () => {
     for (const state of [LifecycleState.Done, LifecycleState.Cancelled]) {
       const board = createBoard(alice, { id: bid(), title: "Board" });
-      const task = createTask(board, alice, { id: tid(), title: "Task" });
+      const task = createTask(board, alice, { id: tid(), title: "t" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, alice, task.id, LifecycleState.InProgress);
       moveTask(board, alice, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       expectDomainError(
         () => manageBoard(board, alice, { kind: "addMember", member: bob }),
@@ -536,10 +807,10 @@ describe("manageBoard", () => {
   it("rejects editing the board title on terminal boards", () => {
     for (const state of [LifecycleState.Done, LifecycleState.Cancelled]) {
       const board = createBoard(alice, { id: bid(), title: "Board" });
-      const task = createTask(board, alice, { id: tid(), title: "Task" });
+      const task = createTask(board, alice, { id: tid(), title: "t" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, alice, task.id, LifecycleState.InProgress);
       moveTask(board, alice, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       expectDomainError(
         () => manageBoard(board, alice, { kind: "editAttributes", title: "X" }),
@@ -560,10 +831,10 @@ describe("manageBoard", () => {
   it("allows editing the board description on terminal boards", () => {
     for (const state of [LifecycleState.Done, LifecycleState.Cancelled]) {
       const board = createBoard(alice, { id: bid(), title: "Board" });
-      const task = createTask(board, alice, { id: tid(), title: "Task" });
+      const task = createTask(board, alice, { id: tid(), title: "t" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, alice, task.id, LifecycleState.InProgress);
       moveTask(board, alice, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       manageBoard(board, alice, { kind: "editAttributes", description: "Notes" });
       expect(board.description).toBe("Notes");

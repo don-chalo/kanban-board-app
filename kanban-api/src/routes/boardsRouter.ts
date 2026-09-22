@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { createBoard, manageBoard, moveBoard, reassignBoardOwner } from "../domain/commands";
+import { createBoard, addComment, editComment, manageBoard, moveBoard, reassignBoardOwner, removeComment } from "../domain/commands";
 import { allowedBoardTransitions } from "../domain/guards";
 import { BoardRepository, UserRepository } from "../repositories";
 import { createActorMiddleware } from "../middleware/actor";
@@ -102,6 +102,33 @@ export function createBoardsRouter(
     const board = await requireBoard(boardRepo, req.params.boardId);
     assertBoardMember(board, requireActor(req));
     res.json(allowedBoardTransitions(board));
+  });
+
+  router.post("/boards/:boardId/comments", async (req, res) => {
+    const board = await requireBoard(boardRepo, req.params.boardId);
+    assertBoardMember(board, requireActor(req));
+    const comment = addComment(board, requireActor(req), {
+      id: randomUUID(),
+      text: req.body?.text,
+    });
+    await boardRepo.saveBoardAggregate(board);
+    res.status(201).json(comment);
+  });
+
+  router.patch("/boards/:boardId/comments/:commentId", async (req, res) => {
+    const board = await requireBoard(boardRepo, req.params.boardId);
+    assertBoardMember(board, requireActor(req));
+    const comment = editComment(board, requireActor(req), req.params.commentId, req.body?.text);
+    await boardRepo.saveBoardAggregate(board);
+    res.json(comment);
+  });
+
+  router.delete("/boards/:boardId/comments/:commentId", async (req, res) => {
+    const board = await requireBoard(boardRepo, req.params.boardId);
+    assertBoardMember(board, requireActor(req));
+    removeComment(board, requireActor(req), req.params.commentId);
+    await boardRepo.saveBoardAggregate(board);
+    res.json({});
   });
 
   router.use("/boards/:boardId/tasks", createTasksRouter(boardRepo));

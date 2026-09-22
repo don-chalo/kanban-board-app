@@ -1,6 +1,16 @@
 export type UserId = string;
 export type BoardId = string;
 export type TaskId = string;
+export type CommentId = string;
+
+export const MAX_COMMENT_TEXT_LENGTH = 2000;
+
+export interface Comment {
+  id: CommentId;
+  author: UserId;
+  text: string;
+  createdAt: string;
+}
 
 export interface User {
   id: UserId;
@@ -27,6 +37,7 @@ export interface Task {
   priority: TaskPriority;
   startedAt: string | null;
   storyPoints: StoryPoints | null;
+  comments: Comment[];
 }
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -64,4 +75,5 @@ export interface Board {
   state: LifecycleState;
   previousState: LifecycleState | null;
   tasks: Task[];
+  comments: Comment[];
 }

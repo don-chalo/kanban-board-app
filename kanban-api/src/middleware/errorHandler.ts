@@ -21,6 +21,7 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   not_found: 404,
   invalid_transition: 409,
   board_not_done: 409,
+  board_not_in_progress: 409,
   read_only: 409,
   member_required: 400,
   duplicate_member: 400,

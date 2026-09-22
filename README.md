@@ -43,7 +43,12 @@ Crear `kanban-api/.env`:
 ```env
 DATABASE_URL=mongodb://localhost:27017/kanban
 DEFAULT_PORT=3000
+CORS_ORIGIN=http://localhost:5173
 ```
+
+`CORS_ORIGIN` es la lista de orígenes separados por comas con acceso CORS
+al API. Sin esta variable, los navegadores solo pueden llamar al API desde
+el mismo origen; en desarrollo local se necesita la URL de Vite.
 
 Instalar y ejecutar:
 
@@ -55,7 +60,15 @@ npm run dev
 
 ### 3. Ejecutar el frontend
 
-El frontend no utiliza archivo `.env`: por defecto se conecta al backend local en `http://localhost:3000`.
+Por defecto se conecta al backend local en `http://localhost:3000`. Para
+apuntar a otro backend (por ejemplo, en otra máquina), crear
+`kanban-front-end/.env` con:
+
+```env
+VITE_API_BASE_URL=http://<host-del-backend>:3000
+```
+
+Y agregar la URL del frontend a `CORS_ORIGIN` en `kanban-api/.env`.
 
 ```bash
 cd kanban-front-end

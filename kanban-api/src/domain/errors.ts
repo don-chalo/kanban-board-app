@@ -3,6 +3,7 @@ export type DomainErrorCode =
   | "not_found"
   | "invalid_transition"
   | "board_not_done"
+  | "board_not_in_progress"
   | "read_only"
   | "member_required"
   | "duplicate_member"

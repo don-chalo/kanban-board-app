@@ -273,9 +273,9 @@ describe("boards router", () => {
       const bob = await createUser(request(app), "bob@example.com");
       const board = await createBoard(request(app), alice, "Docs");
       const task = (await request(app).post(`/boards/${board.id}/tasks`).set("X-User-Id", alice).send({ title: "t" })).body;
+      await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: state });
-      await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: state });
       const res = await request(app).post(`/boards/${board.id}/members`).set("X-User-Id", alice).send({ member: bob });
       expect(res.status).toBe(409);
@@ -303,9 +303,9 @@ describe("boards router", () => {
       const alice = await createUser(request(app), "alice@example.com");
       const board = await createBoard(request(app), alice, "Docs");
       const task = (await request(app).post(`/boards/${board.id}/tasks`).set("X-User-Id", alice).send({ title: "t" })).body;
+      await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: state });
-      await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: state });
       const titleRes = await request(app).patch(`/boards/${board.id}`).set("X-User-Id", alice).send({ title: "X" });
       expect(titleRes.status).toBe(409);
@@ -346,9 +346,9 @@ describe("boards router", () => {
     const alice = await createUser(request(app), "alice@example.com");
     const board = await createBoard(request(app), alice, "Docs");
     const task = (await request(app).post(`/boards/${board.id}/tasks`).set("X-User-Id", alice).send({ title: "t" })).body;
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "Done" });
-    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
 
     const res = await request(app).get(`/boards/${board.id}/actions`).set("X-User-Id", alice);
     expect(res.body).toEqual(["Done", "Blocked", "Cancelled"]);
@@ -370,5 +370,132 @@ describe("boards router", () => {
     const board = await createBoard(request(app), alice, "Docs");
     const res = await request(app).get(`/boards/${board.id}/actions`).set("X-User-Id", bob);
     expect(res.status).toBe(403);
+  });
+
+  it("creates a board comment and embeds it in board detail", async () => {
+    const app = buildApp();
+    const alice = await createUser(request(app), "alice@example.com");
+    const bob = await createUser(request(app), "bob@example.com");
+    const board = await createBoard(request(app), alice, "Docs");
+    await request(app).post(`/boards/${board.id}/members`).set("X-User-Id", alice).send({ member: bob });
+
+    const created = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", bob)
+      .send({ text: "Looks good" });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ author: bob, text: "Looks good" });
+    expect(created.body.id).toBeTruthy();
+    expect(created.body.createdAt).toBeTruthy();
+
+    const detail = await request(app).get(`/boards/${board.id}`).set("X-User-Id", alice);
+    expect(detail.body.comments).toHaveLength(1);
+    expect(detail.body.comments[0]).toMatchObject({ author: bob, text: "Looks good" });
+  });
+
+  it("rejects blank and overlong comment text", async () => {
+    const app = buildApp();
+    const alice = await createUser(request(app), "alice@example.com");
+    const board = await createBoard(request(app), alice, "Docs");
+
+    const blank = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", alice)
+      .send({ text: "   " });
+    expect(blank.status).toBe(400);
+    expect(blank.body.error.code).toBe("validation");
+
+    const overlong = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", alice)
+      .send({ text: "x".repeat(2001) });
+    expect(overlong.status).toBe(400);
+    expect(overlong.body.error.code).toBe("validation");
+  });
+
+  it("denies comments to non-members and unknown actors", async () => {
+    const app = buildApp();
+    const alice = await createUser(request(app), "alice@example.com");
+    const bob = await createUser(request(app), "bob@example.com");
+    const board = await createBoard(request(app), alice, "Docs");
+
+    const forbidden = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", bob)
+      .send({ text: "Hi" });
+    expect(forbidden.status).toBe(403);
+
+    const unknown = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", "user-ghost")
+      .send({ text: "Hi" });
+    expect(unknown.status).toBe(401);
+    expect(unknown.body.error.code).toBe("unknown_actor");
+  });
+
+  it("edits and removes comments as author or manager", async () => {
+    const app = buildApp();
+    const alice = await createUser(request(app), "alice@example.com");
+    const bob = await createUser(request(app), "bob@example.com");
+    const carol = await createUser(request(app), "carol@example.com");
+    const board = await createBoard(request(app), alice, "Docs");
+    await request(app).post(`/boards/${board.id}/members`).set("X-User-Id", alice).send({ member: bob });
+    await request(app).post(`/boards/${board.id}/members`).set("X-User-Id", alice).send({ member: carol });
+
+    const created = (
+      await request(app).post(`/boards/${board.id}/comments`).set("X-User-Id", bob).send({ text: "Draft" })
+    ).body;
+
+    const denied = await request(app)
+      .patch(`/boards/${board.id}/comments/${created.id}`)
+      .set("X-User-Id", carol)
+      .send({ text: "Hijack" });
+    expect(denied.status).toBe(403);
+
+    const edited = await request(app)
+      .patch(`/boards/${board.id}/comments/${created.id}`)
+      .set("X-User-Id", alice)
+      .send({ text: "Edited by manager" });
+    expect(edited.status).toBe(200);
+    expect(edited.body.text).toBe("Edited by manager");
+
+    const missing = await request(app)
+      .patch(`/boards/${board.id}/comments/comment-ghost`)
+      .set("X-User-Id", alice)
+      .send({ text: "x" });
+    expect(missing.status).toBe(404);
+
+    const removed = await request(app)
+      .delete(`/boards/${board.id}/comments/${created.id}`)
+      .set("X-User-Id", bob);
+    expect(removed.status).toBe(200);
+
+    const detail = await request(app).get(`/boards/${board.id}`).set("X-User-Id", alice);
+    expect(detail.body.comments).toEqual([]);
+  });
+
+  it("allows comment CRUD on a frozen board", async () => {
+    const app = buildApp();
+    const alice = await createUser(request(app), "alice@example.com");
+    const board = await createBoard(request(app), alice, "Docs");
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "Blocked" });
+
+    const created = await request(app)
+      .post(`/boards/${board.id}/comments`)
+      .set("X-User-Id", alice)
+      .send({ text: "Frozen note" });
+    expect(created.status).toBe(201);
+
+    const edited = await request(app)
+      .patch(`/boards/${board.id}/comments/${created.body.id}`)
+      .set("X-User-Id", alice)
+      .send({ text: "Edited frozen" });
+    expect(edited.status).toBe(200);
+
+    const removed = await request(app)
+      .delete(`/boards/${board.id}/comments/${created.body.id}`)
+      .set("X-User-Id", alice);
+    expect(removed.status).toBe(200);
   });
 })

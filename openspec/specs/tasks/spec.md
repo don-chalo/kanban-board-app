@@ -102,7 +102,7 @@ A Task Owner, and the Board Creator/Owner, SHALL be able to change a task's stor
 - **THEN** the change is rejected
 
 ### Requirement: Task lifecycle
-A Task SHALL follow this lifecycle: `To Do` -> `In Progress` -> `Done`; from `To Do` the task MAY transition to `Cancelled`; from `In Progress` the task MAY transition to `Blocked` or `Cancelled`. A `Blocked` task SHALL transition only to `In Progress`. `Done` and `Cancelled` SHALL be terminal states, and a task in a terminal state SHALL NOT be edited or moved.
+A Task SHALL follow this lifecycle: `To Do` -> `In Progress` -> `Done`; from `To Do` the task MAY transition to `Cancelled`; from `In Progress` the task MAY transition to `Blocked` or `Cancelled`. A `Blocked` task SHALL transition only to `In Progress`. `Done` and `Cancelled` SHALL be terminal states, and a task in a terminal state SHALL NOT be edited or moved. A task SHALL transition between states only while its board is `In Progress`; on any other board state moves are rejected even when the arc itself is legal. Creating tasks is unaffected by the board state gate.
 
 #### Scenario: Task progresses to done
 - **WHEN** a task in `To Do` moves to `In Progress` and then to `Done`
@@ -120,6 +120,10 @@ A Task SHALL follow this lifecycle: `To Do` -> `In Progress` -> `Done`; from `To
 - **WHEN** a user attempts to move a task from `In Progress` back to `To Do`, or from `Blocked` directly to `To Do`, `Done` or `Cancelled`
 - **THEN** the transition is rejected
 
+#### Scenario: Task cannot move while its board is not In Progress
+- **WHEN** a user attempts to move a task on a board in `To Do` (or any frozen state)
+- **THEN** the transition is rejected even when the target arc is legal
+
 #### Scenario: Cancelled task is terminal and read-only
 - **WHEN** a task is `Cancelled`
 - **THEN** it cannot be edited, moved, or reactivated, but remains visible
@@ -127,3 +131,46 @@ A Task SHALL follow this lifecycle: `To Do` -> `In Progress` -> `Done`; from `To
 #### Scenario: Done task is terminal and read-only
 - **WHEN** a task is `Done`
 - **THEN** it cannot be edited or moved
+
+### Requirement: Task comments
+A Task SHALL carry an embedded thread of zero or more comments, each with a stable id, an author (User), text, and a creation timestamp. Any board member SHALL be able to add a comment, including on a frozen board (`Blocked`, `Cancelled`, `Done`) or a terminal task. A comment SHALL be editable and removable by its author, by the Board Creator/Owner, or by the task owner — including on a frozen board or a terminal task. Comment text SHALL never be blank and SHALL NOT exceed 2000 characters.
+
+#### Scenario: Member adds a comment
+- **WHEN** a board member submits non-blank text within the limit on a task
+- **THEN** the comment is appended to the task's thread with that member as author
+
+#### Scenario: Blank comment is rejected
+- **WHEN** a user submits blank or whitespace-only text
+- **THEN** the comment is rejected and the thread is unchanged
+
+#### Scenario: Overlong comment is rejected
+- **WHEN** a user submits text over 2000 characters
+- **THEN** the comment is rejected and the thread is unchanged
+
+#### Scenario: Author edits their comment
+- **WHEN** the comment author submits new valid text
+- **THEN** the comment's text is updated
+
+#### Scenario: Manager edits any comment
+- **WHEN** the Board Creator or Owner submits new valid text on another member's comment
+- **THEN** the comment's text is updated
+
+#### Scenario: Task owner edits a comment on their task
+- **WHEN** the task owner submits new valid text on another member's comment on their task
+- **THEN** the comment's text is updated
+
+#### Scenario: Unrelated member cannot edit
+- **WHEN** a member who is neither the author, the Board Creator/Owner, nor the task owner attempts to edit a comment
+- **THEN** the edit is rejected and the comment is unchanged
+
+#### Scenario: Author removes their comment
+- **WHEN** the comment author removes it
+- **THEN** the comment is permanently removed from the thread
+
+#### Scenario: Manager or task owner removes any comment
+- **WHEN** the Board Creator/Owner or the task owner removes another member's comment
+- **THEN** the comment is permanently removed from the thread
+
+#### Scenario: Commenting works on a frozen board or terminal task
+- **WHEN** the board is `Blocked`, `Cancelled`, or `Done`, or the task is terminal
+- **THEN** members can still add, edit, and remove comments per the rules above

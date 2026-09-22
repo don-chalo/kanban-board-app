@@ -24,6 +24,7 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
     state: LifecycleState.ToDo,
     previousState: null,
     tasks: [],
+    comments: [],
     ...overrides,
   };
 }
@@ -41,6 +42,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     priority: "medium",
     startedAt: null,
     storyPoints: null,
+    comments: [],
     ...overrides,
   };
 }

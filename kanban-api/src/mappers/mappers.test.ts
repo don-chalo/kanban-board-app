@@ -25,6 +25,9 @@ describe("task mapper", () => {
       priority: "high",
       startedAt: "2026-09-16T10:00:00.000Z",
       storyPoints: 5,
+      comments: [
+        { _id: "comment-1", author: "user-1", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" },
+      ],
     };
     const task = taskDocToDomain(doc);
     expect(task).toEqual({
@@ -39,8 +42,25 @@ describe("task mapper", () => {
       priority: "high",
       startedAt: "2026-09-16T10:00:00.000Z",
       storyPoints: 5,
+      comments: [
+        { id: "comment-1", author: "user-1", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" },
+      ],
     });
     expect(taskToDoc(task)).toEqual(doc);
+  });
+
+  it("reads a legacy task doc without comments as empty", () => {
+    const doc = {
+      _id: "task-1",
+      boardId: "board-1",
+      creator: "user-1",
+      owner: "user-2",
+      title: "Write docs",
+      description: "Details",
+      state: "Blocked",
+      previousState: "InProgress",
+    };
+    expect(taskDocToDomain(doc).comments).toEqual([]);
   });
 
   it("reads a legacy doc without priority as medium", () => {
@@ -98,6 +118,7 @@ describe("task mapper", () => {
       priority: "medium",
       startedAt: null,
       storyPoints: null,
+      comments: [],
     };
     expect(taskToDoc(task).previousState).toBeNull();
   });
@@ -114,6 +135,9 @@ describe("board mapper", () => {
       associated: ["user-2", "user-3"],
       state: "Cancelled",
       previousState: "InProgress",
+      comments: [
+        { _id: "comment-1", author: "user-2", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" },
+      ],
     };
     const task: Task = {
       id: "task-1",
@@ -139,8 +163,25 @@ describe("board mapper", () => {
       state: LifecycleState.Cancelled,
       previousState: LifecycleState.InProgress,
       tasks: [task],
+      comments: [
+        { id: "comment-1", author: "user-2", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" },
+      ],
     });
     expect(boardToDoc(board)).toEqual(doc);
+  });
+
+  it("reads a legacy doc without comments as empty", () => {
+    const doc = {
+      _id: "board-1",
+      title: "Docs",
+      description: "",
+      creator: "user-1",
+      owner: "user-1",
+      associated: [],
+      state: "ToDo",
+      previousState: null,
+    };
+    expect(boardDocToDomain(doc).comments).toEqual([]);
   });
 
   it("defaults to no tasks", () => {

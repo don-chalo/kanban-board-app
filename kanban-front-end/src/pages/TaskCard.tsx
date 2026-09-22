@@ -17,7 +17,6 @@ interface TaskCardProps {
   moves: LifecycleState[]
   movesFailed?: boolean
   onMoved: (taskId: string, target: LifecycleState) => void
-  editable?: boolean
   onEdit?: (task: Task) => void
 }
 
@@ -27,11 +26,10 @@ function TaskCard({
   moves,
   movesFailed = false,
   onMoved,
-  editable = false,
   onEdit,
 }: TaskCardProps) {
   const email = members.get(task.owner) ?? task.owner
-  const editActive = editable && onEdit !== undefined
+  const editActive = onEdit !== undefined
   const priority: TaskPriority = task.priority ?? 'medium'
   const startedAt: string | null = task.startedAt ?? null
   const storyPoints: StoryPoints | null = task.storyPoints ?? null
@@ -63,16 +61,42 @@ function TaskCard({
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
-      <p className="mt-1 text-xs tracking-widest opacity-70">{STATE_LABELS[task.state]}</p>
-      {storyPoints !== null && (
-        <span
-          data-testid="task-story-points"
-          title={`${storyPoints} story points`}
-          aria-label={`${storyPoints} story points`}
-          className="absolute right-1 top-1 flex h-5 min-w-6 items-center justify-center border border-xenon/60 px-1 font-matrix text-[12px] font-bold tracking-widest text-xenon"
+      {task.comments.length > 0 ? (
+        <p
+          data-testid="task-comments-count"
+          className="mt-1 text-xs tracking-widest opacity-70"
         >
-          {storyPoints}
-        </span>
+          COMMENTS ({task.comments.length})
+        </p>
+      ) : (
+        <p
+          data-testid="task-comments-count"
+          aria-hidden="true"
+          className="mt-1 select-none text-xs tracking-widest opacity-0"
+        >
+          {'\u00A0'}
+        </p>
+      )}
+      {storyPoints !== null && (
+        <Tooltip.Root delayDuration={0}>
+          <Tooltip.Trigger asChild>
+            <span
+              data-testid="task-story-points"
+              aria-label={`${storyPoints} story points`}
+              className="absolute right-1 top-1 flex h-5 min-w-6 items-center justify-center border border-xenon/60 px-1 font-matrix text-[12px] font-bold tracking-widest text-xenon"
+            >
+              {storyPoints}
+            </span>
+          </Tooltip.Trigger>
+          <Tooltip.Portal>
+            <Tooltip.Content
+              side="left"
+              className="border border-xenon bg-void px-2 py-1 text-xs tracking-widest text-xenon"
+            >
+              <p className="font-bold tracking-wide">Story points: {storyPoints}</p>
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        </Tooltip.Root>
       )}
       <Tooltip.Root delayDuration={0}>
         <Tooltip.Trigger asChild>
@@ -115,7 +139,6 @@ function TaskCard({
       {startedAt !== null && (
         <span
           data-testid="task-started-at"
-          title={startedAt}
           aria-label={`Started ${startedAt}`}
           className="absolute bottom-1 right-9 text-[12px] tracking-widest opacity-70"
         >

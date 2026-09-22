@@ -198,6 +198,7 @@ describe("http-api e2e scenarios (in-process app)", () => {
 
   it("task lifecycle and ownership", async () => {
     const { alice, bob, board, task } = await seedBoard();
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     const moved = await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     expect(moved.body.state).toBe("InProgress");
     const blocked = await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "Blocked" });
@@ -215,6 +216,7 @@ describe("http-api e2e scenarios (in-process app)", () => {
 
   it("next-actions: live task lists states, terminal task is empty", async () => {
     const { alice, bob, board, task } = await seedBoard();
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     const actions = await request(app).get(`/boards/${board.id}/tasks/${task.id}/actions`).set("X-User-Id", bob);
     expect(actions.status).toBe(200);
     expect(actions.body).toEqual(["InProgress", "Cancelled"]);
@@ -227,6 +229,7 @@ describe("http-api e2e scenarios (in-process app)", () => {
 
   it("error contract: uniform error bodies with status and code", async () => {
     const { alice, bob, board, task } = await seedBoard();
+    await request(app).post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
     const conflict = await request(app).post(`/boards/${board.id}/tasks/${task.id}/state`).set("X-User-Id", alice).send({ target: "ToDo" });
     expect(conflict.status).toBe(409);
@@ -260,6 +263,7 @@ describe("durable persistence across a server restart", () => {
       const board = (await agent.post("/boards").set("X-User-Id", alice).send({ title: "Docs" })).body;
       const keep = (await agent.post(`/boards/${board.id}/tasks`).set("X-User-Id", alice).send({ title: "Keep" })).body;
       const drop = (await agent.post(`/boards/${board.id}/tasks`).set("X-User-Id", alice).send({ title: "Drop" })).body;
+      await agent.post(`/boards/${board.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await agent.post(`/boards/${board.id}/tasks/${keep.id}/state`).set("X-User-Id", alice).send({ target: "InProgress" });
       await agent.delete(`/boards/${board.id}/tasks/${drop.id}`).set("X-User-Id", alice);
       await server.stop();
@@ -272,7 +276,7 @@ describe("durable persistence across a server restart", () => {
 
       const detail = await again.get(`/boards/${board.id}`).set("X-User-Id", alice);
       expect(detail.status).toBe(200);
-      expect(detail.body.state).toBe("ToDo");
+      expect(detail.body.state).toBe("InProgress");
       expect(
         detail.body.tasks.map((t: { id: string; state: string }) => ({ id: t.id, state: t.state })),
       ).toEqual([{ id: keep.id, state: "InProgress" }]);
@@ -283,7 +287,7 @@ describe("durable persistence across a server restart", () => {
       expect(list.body.map((t: { id: string }) => t.id)).toEqual([keep.id]);
 
       const boardActions = await again.get(`/boards/${board.id}/actions`).set("X-User-Id", alice);
-      expect(boardActions.body).toEqual(["InProgress", "Cancelled"]);
+      expect(boardActions.body).toEqual(["Blocked", "Cancelled"]);
 
       await server.stop();
       await mongo.stop();

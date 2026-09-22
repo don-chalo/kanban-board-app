@@ -4,7 +4,11 @@ import {
   batchUsers,
   boardActions,
   createBoard,
+  createComment,
   createTask,
+  createTaskComment,
+  editComment,
+  editTaskComment,
   getBoard,
   getTransitions,
   getUser,
@@ -12,6 +16,8 @@ import {
   login,
   moveBoard,
   moveTask,
+  removeComment,
+  removeTaskComment,
   resolveUser,
   searchUsers,
   setTaskOwner,
@@ -137,6 +143,7 @@ describe("createBoard", () => {
       state: "To Do",
       previousState: null,
       tasks: [],
+      comments: [],
     };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -173,6 +180,7 @@ const taskFixture = {
   description: "",
   state: "ToDo",
   previousState: null,
+  comments: [],
 };
 
 const boardFixture = {
@@ -185,6 +193,7 @@ const boardFixture = {
   state: "ToDo",
   previousState: null,
   tasks: [taskFixture],
+  comments: [],
 };
 
 describe("getBoard", () => {
@@ -445,8 +454,7 @@ describe("move and action endpoints", () => {
     );
   });
 
-  it("setTaskOwner posts the new owner", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+  it("setTaskOwner posts the new owner", async () => {    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ ...taskFixture, owner: "user-3" }),
@@ -517,6 +525,81 @@ describe("move and action endpoints", () => {
       ["Move task failed", () => moveTask("board-1", "task-1", "InProgress")],
       ["Set task owner failed", () => setTaskOwner("board-1", "task-1", "user-3")],
       ["Update task failed", () => updateTask("board-1", "task-1", { title: "T" })],
+      ["Create comment failed", () => createComment("board-1", "Hi")],
+      ["Edit comment failed", () => editComment("board-1", "comment-1", "Hi")],
+      ["Remove comment failed", () => removeComment("board-1", "comment-1")],
+    ] as const) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+      await expect(call()).rejects.toThrow(name);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("creates, edits, and removes board comments", async () => {
+    const comment = { id: "comment-1", author: "user-1", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => comment });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createComment("board-1", "Hi")).resolves.toEqual(comment);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/comments",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ text: "Hi" }),
+      }),
+    );
+
+    await expect(editComment("board-1", "comment-1", "Hey")).resolves.toEqual(comment);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/comments/comment-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ text: "Hey" }),
+      }),
+    );
+
+    await expect(removeComment("board-1", "comment-1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/comments/comment-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("creates, edits, and removes task comments", async () => {
+    const comment = { id: "comment-1", author: "user-1", text: "Hi", createdAt: "2026-09-21T10:00:00.000Z" };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => comment });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createTaskComment("board-1", "task-1", "Hi")).resolves.toEqual(comment);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/tasks/task-1/comments",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ text: "Hi" }),
+      }),
+    );
+
+    await expect(editTaskComment("board-1", "task-1", "comment-1", "Hey")).resolves.toEqual(comment);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/tasks/task-1/comments/comment-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ text: "Hey" }),
+      }),
+    );
+
+    await expect(removeTaskComment("board-1", "task-1", "comment-1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/boards/board-1/tasks/task-1/comments/comment-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("rejects task comment calls on error responses", async () => {
+    for (const [name, call] of [
+      ["Create task comment failed", () => createTaskComment("board-1", "task-1", "Hi")],
+      ["Edit task comment failed", () => editTaskComment("board-1", "task-1", "comment-1", "Hi")],
+      ["Remove task comment failed", () => removeTaskComment("board-1", "task-1", "comment-1")],
     ] as const) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
       await expect(call()).rejects.toThrow(name);

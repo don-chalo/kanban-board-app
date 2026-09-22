@@ -1,9 +1,9 @@
-import { LifecycleState, isStoryPoints, isTaskPriority, normalizePriority } from "./entities";
-import type { Board, BoardId, StoryPoints, Task, TaskId, TaskPriority, UserId } from "./entities";
+import { LifecycleState, MAX_COMMENT_TEXT_LENGTH, isStoryPoints, isTaskPriority, normalizePriority } from "./entities";
+import type { Board, BoardId, Comment, CommentId, StoryPoints, Task, TaskId, TaskPriority, UserId } from "./entities";
 import { Action, authorize } from "./authorize";
 import { canTransition } from "./lifecycle";
 import { boardCanBeDone, isBoardFrozen, isEditable } from "./guards";
-import { isMember } from "./roles";
+import { isMember, resolveRole } from "./roles";
 import { DomainError } from "./errors";
 
 export function createBoard(
@@ -20,6 +20,7 @@ export function createBoard(
     state: LifecycleState.ToDo,
     previousState: null,
     tasks: [],
+    comments: [],
   };
 }
 
@@ -60,6 +61,7 @@ export function createTask(
     priority: normalizePriority(input.priority),
     startedAt: null,
     storyPoints: isStoryPoints(input.storyPoints) ? input.storyPoints : null,
+    comments: [],
   };
   board.tasks.push(task);
   return task;
@@ -76,6 +78,12 @@ export function moveTask(
   assertAuthorized(board, Action.MoveTask, task, actor);
   if (!isEditable(board, task)) {
     throw new DomainError("read_only", "Task is not editable");
+  }
+  if (board.state !== LifecycleState.InProgress) {
+    throw new DomainError(
+      "board_not_in_progress",
+      `Tasks cannot move while board ${board.id} is not In Progress`,
+    );
   }
   if (!canTransition(task.state, target, task.previousState)) {
     throw new DomainError(
@@ -183,6 +191,152 @@ export function deleteTask(board: Board, actor: UserId, taskId: TaskId): void {
     throw new DomainError("read_only", `Board ${board.id} is frozen`);
   }
   board.tasks = board.tasks.filter((t) => t.id !== task.id);
+}
+
+export function addComment(
+  board: Board,
+  actor: UserId,
+  input: { id: CommentId; text: string },
+  now: string = new Date().toISOString(),
+): Comment {
+  if (!isMember(board, actor)) {
+    throw new DomainError(
+      "unauthorized",
+      `User ${actor} is not authorized to perform this action`,
+    );
+  }
+  const comment: Comment = {
+    id: input.id,
+    author: actor,
+    text: assertValidCommentText(input.text),
+    createdAt: now,
+  };
+  board.comments.push(comment);
+  return comment;
+}
+
+export function editComment(
+  board: Board,
+  actor: UserId,
+  commentId: CommentId,
+  text: string,
+): Comment {
+  const comment = findComment(board, commentId);
+  assertCommentAuthorOrManager(board, comment, actor);
+  comment.text = assertValidCommentText(text);
+  return comment;
+}
+
+export function removeComment(board: Board, actor: UserId, commentId: CommentId): void {
+  const comment = findComment(board, commentId);
+  assertCommentAuthorOrManager(board, comment, actor);
+  board.comments = board.comments.filter((c) => c.id !== comment.id);
+}
+
+export function addTaskComment(
+  board: Board,
+  actor: UserId,
+  taskId: TaskId,
+  input: { id: CommentId; text: string },
+  now: string = new Date().toISOString(),
+): Comment {
+  const task = findTask(board, taskId);
+  if (!isMember(board, actor)) {
+    throw new DomainError(
+      "unauthorized",
+      `User ${actor} is not authorized to perform this action`,
+    );
+  }
+  const comment: Comment = {
+    id: input.id,
+    author: actor,
+    text: assertValidCommentText(input.text),
+    createdAt: now,
+  };
+  task.comments.push(comment);
+  return comment;
+}
+
+export function editTaskComment(
+  board: Board,
+  actor: UserId,
+  taskId: TaskId,
+  commentId: CommentId,
+  text: string,
+): Comment {
+  const task = findTask(board, taskId);
+  const comment = findTaskComment(task, commentId);
+  assertTaskCommentAuthorOrManager(board, task, comment, actor);
+  comment.text = assertValidCommentText(text);
+  return comment;
+}
+
+export function removeTaskComment(
+  board: Board,
+  actor: UserId,
+  taskId: TaskId,
+  commentId: CommentId,
+): void {
+  const task = findTask(board, taskId);
+  const comment = findTaskComment(task, commentId);
+  assertTaskCommentAuthorOrManager(board, task, comment, actor);
+  task.comments = task.comments.filter((c) => c.id !== comment.id);
+}
+
+function assertTaskCommentAuthorOrManager(
+  board: Board,
+  task: Task,
+  comment: Comment,
+  actor: UserId,
+): void {
+  if (comment.author === actor || task.owner === actor) {
+    return;
+  }
+  const role = resolveRole(board, actor);
+  if (role !== "creator" && role !== "owner") {
+    throw new DomainError(
+      "unauthorized",
+      `User ${actor} is not authorized to perform this action`,
+    );
+  }
+}
+
+function findTaskComment(task: Task, commentId: CommentId): Comment {
+  const comment = task.comments.find((c) => c.id === commentId);
+  if (!comment) throw new DomainError("not_found", `Comment ${commentId} not found`);
+  return comment;
+}
+
+function assertValidCommentText(text: unknown): string {
+  if (typeof text !== "string" || text.trim().length === 0) {
+    throw new DomainError("validation", "Comment text is required");
+  }
+  if (text.length > MAX_COMMENT_TEXT_LENGTH) {
+    throw new DomainError(
+      "validation",
+      `Comment text must be at most ${MAX_COMMENT_TEXT_LENGTH} characters`,
+    );
+  }
+  return text;
+}
+
+function assertCommentAuthorOrManager(board: Board, comment: Comment, actor: UserId): void {
+  if (comment.author === actor) {
+    return;
+  }
+  const role = resolveRole(board, actor);
+  if (role !== "creator" && role !== "owner") {
+    throw new DomainError(
+      "unauthorized",
+      `User ${actor} is not authorized to perform this action`,
+    );
+  }
+}
+
+function findComment(board: Board, commentId: CommentId): Comment {
+  const comment = board.comments.find((c) => c.id === commentId);
+  if (!comment) throw new DomainError("not_found", `Comment ${commentId} not found`);
+  return comment;
 }
 
 export type ManageBoardChange =

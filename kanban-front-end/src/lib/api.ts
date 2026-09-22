@@ -35,6 +35,7 @@ export interface Task {
   priority?: TaskPriority;
   startedAt?: string | null;
   storyPoints?: StoryPoints | null;
+  comments: Comment[];
 }
 
 export type StoryPoints = 1 | 2 | 3 | 5 | 8 | 13;
@@ -49,6 +50,14 @@ export interface Board {
   state: LifecycleState;
   previousState: LifecycleState | null;
   tasks: Task[];
+  comments: Comment[];
+}
+
+export interface Comment {
+  id: string;
+  author: UserId;
+  text: string;
+  createdAt: string;
 }
 
 export type ListBoardsResult =
@@ -318,6 +327,40 @@ export async function updateBoard(
   return (await res.json()) as Board;
 }
 
+export async function createComment(boardId: string, text: string): Promise<Comment> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Create comment", res);
+  }
+  return (await res.json()) as Comment;
+}
+
+export async function editComment(boardId: string, commentId: string, text: string): Promise<Comment> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/comments/${commentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Edit comment", res);
+  }
+  return (await res.json()) as Comment;
+}
+
+export async function removeComment(boardId: string, commentId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/comments/${commentId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Remove comment", res);
+  }
+}
+
 export async function moveTask(
   boardId: string,
   taskId: string,
@@ -329,9 +372,56 @@ export async function moveTask(
     body: JSON.stringify({ target }),
   });
   if (!res.ok) {
-    throw new Error(`Move task failed (${res.status})`);
+    throw await toMoveError("Move task", res);
   }
   return (await res.json()) as Task;
+}
+
+export async function createTaskComment(
+  boardId: string,
+  taskId: string,
+  text: string,
+): Promise<Comment> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/tasks/${taskId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Create task comment", res);
+  }
+  return (await res.json()) as Comment;
+}
+
+export async function editTaskComment(
+  boardId: string,
+  taskId: string,
+  commentId: string,
+  text: string,
+): Promise<Comment> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Edit task comment", res);
+  }
+  return (await res.json()) as Comment;
+}
+
+export async function removeTaskComment(
+  boardId: string,
+  taskId: string,
+  commentId: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw await toMoveError("Remove task comment", res);
+  }
 }
 
 export async function setTaskOwner(

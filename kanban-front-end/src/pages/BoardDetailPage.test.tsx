@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LifecycleState, Task, UserId } from '../lib/api'
+import type { Comment, LifecycleState, Task, UserId } from '../lib/api'
 import BoardDetailPage from './BoardDetailPage'
 
 const BASE = 'http://localhost:3000'
@@ -17,6 +17,7 @@ type BoardFixture = {
   state: LifecycleState
   previousState: LifecycleState | null
   tasks: Task[]
+  comments: Comment[]
 }
 
 function makeTask(id: string, title: string, state: LifecycleState, owner = 'user-2'): Task {
@@ -29,6 +30,7 @@ function makeTask(id: string, title: string, state: LifecycleState, owner = 'use
     description: '',
     state,
     previousState: null,
+    comments: [],
   }
 }
 
@@ -43,6 +45,7 @@ function makeBoard(overrides: Partial<BoardFixture> = {}): BoardFixture {
     state: 'ToDo',
     previousState: null,
     tasks: [makeTask('task-1', 'First', 'ToDo')],
+    comments: [],
     ...overrides,
   }
 }
@@ -62,6 +65,8 @@ function stubApi(
     transitionsStatus?: number
     boardStateStatus?: number
     boardStateCode?: string
+    taskStateStatus?: number
+    taskStateCode?: string
     boardStatus?: number
     membersStatus?: number
     boardPatchStatus?: number
@@ -70,6 +75,7 @@ function stubApi(
   } = {},
 ) {
   let taskCounter = 0
+  let commentCounter = 0
   let resolveCounter = 0
   const boardMoves = opts.boardMoves ?? ['InProgress', 'Blocked', 'Cancelled']
   const taskMoves = opts.taskMoves ?? {}
@@ -193,6 +199,13 @@ function stubApi(
     }
     const taskStateMatch = url.match(/\/boards\/[^/]+\/tasks\/([^/]+)\/state$/)
     if (taskStateMatch && method === 'POST') {
+      if (opts.taskStateStatus !== undefined) {
+        return {
+          ok: false,
+          status: opts.taskStateStatus,
+          json: async () => ({ error: { code: opts.taskStateCode ?? 'invalid_transition', message: 'rejected' } }),
+        }
+      }
       const task = board.tasks.find((t) => t.id === taskStateMatch[1])
       if (task !== undefined) {
         task.state = body.target as LifecycleState
@@ -218,6 +231,34 @@ function stubApi(
           task.description = String(body.description)
         }
         return ok(task)
+      }
+      return { ok: false, status: 404, json: async () => ({}) }
+    }
+    if (url === `${BASE}/boards/${board.id}/comments` && method === 'POST') {
+      commentCounter += 1
+      const comment = {
+        id: `comment-new-${commentCounter}`,
+        author: 'user-1',
+        text: String(body.text),
+        createdAt: '2026-09-21T14:00:00.000Z',
+      }
+      board.comments.push(comment)
+      return ok(comment, 201)
+    }
+    const commentMatch = url.match(/\/boards\/[^/]+\/comments\/([^/]+)$/)
+    if (commentMatch && method === 'PATCH') {
+      const comment = board.comments.find((c) => c.id === commentMatch[1])
+      if (comment !== undefined) {
+        comment.text = String(body.text)
+        return ok(comment)
+      }
+      return { ok: false, status: 404, json: async () => ({}) }
+    }
+    if (commentMatch && method === 'DELETE') {
+      const index = board.comments.findIndex((c) => c.id === commentMatch[1])
+      if (index !== -1) {
+        board.comments.splice(index, 1)
+        return ok({})
       }
       return { ok: false, status: 404, json: async () => ({}) }
     }
@@ -549,7 +590,7 @@ describe('BoardDetailPage', () => {
   })
 
   it('moves a task through its arrow and relocates the card', async () => {
-    stubApi(makeBoard())
+    stubApi(makeBoard({ state: 'InProgress' }))
     renderPage()
     await flush()
 
@@ -560,6 +601,36 @@ describe('BoardDetailPage', () => {
     const inProgress = section('IN PROGRESS')
     expect(toDo?.textContent).not.toContain('FIRST')
     expect(inProgress?.textContent).toContain('FIRST')
+  })
+
+  it('hides task arrows while the board is not In Progress', async () => {
+    stubApi(makeBoard())
+    renderPage()
+    await flush()
+
+    expect(container.querySelector('[aria-label="Move task First"]')).toBeNull()
+  })
+
+  it('shows task arrows on an In Progress board', async () => {
+    stubApi(makeBoard({ state: 'InProgress' }))
+    renderPage()
+    await flush()
+
+    expect(container.querySelector('[aria-label="Move task First"]')).not.toBeNull()
+  })
+
+  it('explains the board-progress gate when a task move is rejected', async () => {
+    stubApi(
+      makeBoard({ state: 'InProgress' }),
+      { taskStateStatus: 409, taskStateCode: 'board_not_in_progress' },
+    )
+    renderPage()
+    await flush()
+
+    await openSelect('Move task First')
+    await pickOption('IN PROGRESS')
+
+    expect(container.textContent).toContain('Start the board before moving tasks.')
   })
 
   it('hides a task arrow when no moves are legal', async () => {
@@ -1422,7 +1493,7 @@ describe('BoardDetailPage', () => {
     expect(container.querySelector('[aria-label="Edit task First"]')).not.toBeNull()
   })
 
-  it('hides the edit button on tasks the non-manager actor does not own', async () => {
+  it('opens the task modal from any task title', async () => {
     localStorage.setItem(
       'todo.identity',
       JSON.stringify({ id: 'user-2', email: 'bob@example.com' }),
@@ -1441,10 +1512,23 @@ describe('BoardDetailPage', () => {
     await flush()
 
     expect(container.querySelector('[aria-label="Edit task Mine"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Edit task Theirs"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Edit task Theirs"]')).not.toBeNull()
+
+    act(() => {
+      ;(container.querySelector('[aria-label="Edit task Theirs"]') as HTMLButtonElement).click()
+    })
+    await flush()
+
+    expect(document.body.querySelector('[aria-label="Edit task"]')).not.toBeNull()
+    const title = document.body.querySelector('[aria-label="Task title"]') as HTMLInputElement | null
+    expect(title).not.toBeNull()
+    expect(title?.disabled).toBe(true)
+    expect(
+      Array.from(document.body.querySelectorAll('button')).some((b) => b.textContent === '> SAVE'),
+    ).toBe(false)
   })
 
-  it('hides the edit button on frozen boards and terminal tasks', async () => {
+  it('opens frozen and terminal tasks with conversation only and no form or SAVE', async () => {
     stubApi(
       makeBoard({
         state: 'Blocked',
@@ -1454,8 +1538,22 @@ describe('BoardDetailPage', () => {
     renderPage()
     await flush()
 
-    expect(container.querySelector('[aria-label="Edit task Done"]')).toBeNull()
-    expect(container.querySelector('[aria-label="Edit task Open"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Edit task Done"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Edit task Open"]')).not.toBeNull()
+
+    act(() => {
+      ;(container.querySelector('[aria-label="Edit task Open"]') as HTMLButtonElement).click()
+    })
+    await flush()
+
+    const dialog = document.body.querySelector('[aria-label="Edit task"]')
+    expect(dialog).not.toBeNull()
+    const title = dialog?.querySelector('[aria-label="Task title"]') as HTMLInputElement | null
+    expect(title).not.toBeNull()
+    expect(title?.disabled).toBe(true)
+    expect(
+      Array.from(dialog?.querySelectorAll('button') ?? []).some((b) => b.textContent === '> SAVE'),
+    ).toBe(false)
   })
 
   it('opens the edit dialog prefilled and saves the changes, closing and refetching', async () => {
@@ -1527,5 +1625,454 @@ describe('BoardDetailPage', () => {
 
     expect(container.querySelector('[aria-label="Edit task Mine"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="Task owner"]')).toBeNull()
+  })
+
+  describe('board comments', () => {
+    type GatedResponse = { ok: boolean; status: number; json: () => Promise<object> }
+
+    function makeComment(id: string, author: UserId, text: string) {
+      return { id, author, text, createdAt: '2026-09-21T10:00:00.000Z' }
+    }
+
+    function commentBoard() {
+      return makeBoard({
+        comments: [
+          makeComment('c-old', 'user-2', 'Older note'),
+          { ...makeComment('c-new', 'user-1', 'Newer note'), createdAt: '2026-09-21T12:00:00.000Z' },
+        ],
+      })
+    }
+
+    function setCommentText(value: string) {
+      const input = container.querySelector('input[aria-label="New comment"]')
+      if (input === null) {
+        throw new Error('comment input not found')
+      }
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    function commentInput(id: string): HTMLInputElement {
+      const el = container.querySelector(`input[aria-label="Comment ${id}"]`)
+      if (el === null) {
+        throw new Error(`comment input ${id} not found`)
+      }
+      return el as HTMLInputElement
+    }
+
+    function typeInto(input: HTMLInputElement, value: string) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    it('lists comments newest-first with header count and authors', async () => {
+      stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      const section = container.querySelector('section[aria-label="Comments"]')
+      expect(section?.textContent).toContain('COMMENTS')
+      expect(section?.textContent).toContain('(2)')
+      expect(section?.textContent).toContain('bob@example.com')
+      expect(section?.textContent).toContain('Older note')
+      const items = Array.from(section?.querySelectorAll('li') ?? []).map((el) => el.textContent ?? '')
+      expect(items).toHaveLength(2)
+      expect(items[0]).toContain('Newer note')
+      expect(items[1]).toContain('Older note')
+    })
+
+    it('creates a comment through the entry and shows it first', async () => {
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      act(() => {
+        setCommentText('Fresh thought')
+      })
+      await flush()
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      const postCalls = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/comments') && init?.method === 'POST',
+      )
+      expect(postCalls).toHaveLength(1)
+      expect(JSON.parse(String(postCalls[0][1]?.body))).toEqual({ text: 'Fresh thought' })
+      const items = Array.from(
+        container.querySelectorAll('section[aria-label="Comments"] li'),
+      ).map((el) => el.textContent ?? '')
+      expect(items[0]).toContain('Fresh thought')
+      expect(container.querySelector('input[aria-label="New comment"]')?.getAttribute('value')).toBe('')
+    })
+
+    it('rejects a blank comment inline without sending a request', async () => {
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      act(() => {
+        setCommentText('   ')
+      })
+      await flush()
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      expect(container.textContent).toContain('Comment is required.')
+      const postCalls = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/comments'),
+      )
+      expect(postCalls).toHaveLength(0)
+    })
+
+    it('lets the author edit their own comment', async () => {
+      localStorage.setItem('todo.identity', JSON.stringify({ id: 'user-2', email: 'bob@example.com' }))
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      const edit = container.querySelector('[aria-label="Edit Comment c-old"]')
+      expect(edit).not.toBeNull()
+      act(() => {
+        ;(edit as HTMLButtonElement).click()
+      })
+      await flush()
+      act(() => {
+        typeInto(commentInput('c-old'), 'Revised note')
+      })
+      act(() => {
+        commentInput('c-old').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      await flush()
+
+      const patchCalls = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/comments/c-old') && init?.method === 'PATCH',
+      )
+      expect(patchCalls).toHaveLength(1)
+      expect(JSON.parse(String(patchCalls[0][1]?.body))).toEqual({ text: 'Revised note' })
+      expect(container.textContent).toContain('Revised note')
+    })
+
+    it('lets a manager edit another member comment', async () => {
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Edit Comment c-old"]') as HTMLButtonElement).click()
+      })
+      await flush()
+      act(() => {
+        typeInto(commentInput('c-old'), 'Manager revision')
+      })
+      act(() => {
+        commentInput('c-old').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      await flush()
+
+      const patchCalls = fetchMock.mock.calls.filter(
+        (call) =>
+          String(call[0]).endsWith('/comments/c-old') &&
+          (call[1] as RequestInit | undefined)?.method === 'PATCH',
+      )
+      expect(patchCalls).toHaveLength(1)
+      expect(container.textContent).toContain('Manager revision')
+    })
+
+    it('hides edit and remove actions from plain members on others comments', async () => {
+      localStorage.setItem('todo.identity', JSON.stringify({ id: 'user-2', email: 'bob@example.com' }))
+      stubApi(
+        makeBoard({
+          creator: 'user-99',
+          owner: 'user-99',
+          comments: [makeComment('c-1', 'user-1', 'Manager note')],
+        }),
+      )
+      renderPage()
+      await flush()
+
+      expect(container.querySelector('[aria-label="Edit Comment c-1"]')).toBeNull()
+      expect(container.querySelector('[aria-label="Remove comment c-1"]')).toBeNull()
+      expect(container.textContent).toContain('Manager note')
+    })
+
+    it('removes a comment once confirmed with Yes', async () => {
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Remove comment c-old"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      expect(container.querySelector('[role="dialog"][aria-label="Remove comment"]')).not.toBeNull()
+      const yes = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'YES',
+      ) as HTMLButtonElement | undefined
+      expect(yes).toBeDefined()
+      act(() => {
+        yes?.click()
+      })
+      await flush()
+
+      const deleteCalls = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/comments/c-old') && init?.method === 'DELETE',
+      )
+      expect(deleteCalls).toHaveLength(1)
+      expect(container.querySelector('[role="dialog"][aria-label="Remove comment"]')).toBeNull()
+      expect(container.textContent).not.toContain('Older note')
+    })
+
+    it('keeps the comment when the removal is cancelled', async () => {
+      const fetchMock = stubApi(commentBoard())
+      renderPage()
+      await flush()
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Remove comment c-old"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      const cancel = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'CANCEL',
+      ) as HTMLButtonElement | undefined
+      act(() => {
+        cancel?.click()
+      })
+      await flush()
+
+      const deleteCalls = fetchMock.mock.calls.filter(
+        (call) =>
+          String(call[0]).endsWith('/comments/c-old') &&
+          (call[1] as RequestInit | undefined)?.method === 'DELETE',
+      )
+      expect(deleteCalls).toHaveLength(0)
+      expect(container.textContent).toContain('Older note')
+    })
+
+    it('supports full CRUD on a frozen board', async () => {
+      const fetchMock = stubApi(
+        makeBoard({ state: 'Blocked', comments: [makeComment('c-1', 'user-2', 'Frozen note')] }),
+      )
+      renderPage()
+      await flush()
+
+      expect(container.textContent).toContain('Frozen note')
+
+      act(() => {
+        setCommentText('Another frozen note')
+      })
+      await flush()
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      const postCalls = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/comments') && init?.method === 'POST',
+      )
+      expect(postCalls).toHaveLength(1)
+      expect(container.textContent).toContain('Another frozen note')
+    })
+
+    it('shows busy on add and sends a single request on repeated confirm', async () => {
+      const board = commentBoard()
+      const fetchMock = stubApi(board)
+      const inner = fetchMock.getMockImplementation()
+      if (inner === undefined) {
+        throw new Error('stub implementation missing')
+      }
+      let resolvePost!: (value: GatedResponse) => void
+      const postGate = new Promise<GatedResponse>((resolve) => {
+        resolvePost = resolve
+      })
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/comments') && init?.method === 'POST') {
+          return postGate
+        }
+        return inner(url, init)
+      })
+      renderPage()
+      await flush()
+
+      act(() => {
+        setCommentText('Busy thought')
+      })
+      await flush()
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      expect(container.querySelector('[aria-label="Adding comment"]')).not.toBeNull()
+      expect(
+        (container.querySelector('input[aria-label="New comment"]') as HTMLInputElement).disabled,
+      ).toBe(true)
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      resolvePost({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          id: 'c-busy',
+          author: 'user-1',
+          text: 'Busy thought',
+          createdAt: '2026-09-21T14:00:00.000Z',
+        }),
+      })
+      board.comments.push({
+        id: 'c-busy',
+        author: 'user-1',
+        text: 'Busy thought',
+        createdAt: '2026-09-21T14:00:00.000Z',
+      })
+      await flush()
+
+      expect(
+        fetchMock.mock.calls.filter(
+          (call) =>
+            String(call[0]).endsWith('/comments') &&
+            (call[1] as RequestInit | undefined)?.method === 'POST',
+        ),
+      ).toHaveLength(1)
+      expect(container.querySelector('[aria-label="Adding comment"]')).toBeNull()
+      expect(container.textContent).toContain('Busy thought')
+    })
+
+    it('restores the entry when add fails', async () => {
+      const fetchMock = stubApi(commentBoard())
+      const inner = fetchMock.getMockImplementation()
+      if (inner === undefined) {
+        throw new Error('stub implementation missing')
+      }
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/comments') && init?.method === 'POST') {
+          return { ok: false, status: 500, json: async () => ({}) }
+        }
+        return inner(url, init)
+      })
+      renderPage()
+      await flush()
+
+      act(() => {
+        setCommentText('Lost thought')
+      })
+      await flush()
+      act(() => {
+        ;(container.querySelector('[aria-label="Add comment"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      expect(container.textContent).toContain('Could not add the comment.')
+      expect(
+        (container.querySelector('input[aria-label="New comment"]') as HTMLInputElement).value,
+      ).toBe('Lost thought')
+      expect(container.querySelector('[aria-label="Adding comment"]')).toBeNull()
+    })
+
+    it('shows busy on edit and restores on failure', async () => {
+      const fetchMock = stubApi(commentBoard())
+      const inner = fetchMock.getMockImplementation()
+      if (inner === undefined) {
+        throw new Error('stub implementation missing')
+      }
+      let resolvePatch!: (value: GatedResponse) => void
+      const patchGate = new Promise<GatedResponse>((resolve) => {
+        resolvePatch = resolve
+      })
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/comments/c-new') && init?.method === 'PATCH') {
+          return patchGate
+        }
+        return inner(url, init)
+      })
+      renderPage()
+      await flush()
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Edit Comment c-new"]') as HTMLButtonElement).click()
+      })
+      await flush()
+      const editInput = commentInput('c-new')
+      act(() => {
+        typeInto(editInput, 'Slow revision')
+      })
+      act(() => {
+        editInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      await flush()
+
+      const row = editInput.closest('li')
+      expect(row?.querySelector('[aria-label="Working on comment"]')).not.toBeNull()
+      expect(
+        row?.querySelector('[aria-label="Remove comment c-new"]')?.getAttribute('disabled'),
+      ).not.toBeNull()
+
+      resolvePatch({ ok: false, status: 500, json: async () => ({}) })
+      await flush()
+
+      expect(container.textContent).toContain('Could not save the comment.')
+      expect(container.querySelector('[aria-label="Working on comment"]')).toBeNull()
+      expect(container.textContent).toContain('Newer note')
+    })
+
+    it('disables YES with busy on remove and restores on failure', async () => {
+      const fetchMock = stubApi(commentBoard())
+      const inner = fetchMock.getMockImplementation()
+      if (inner === undefined) {
+        throw new Error('stub implementation missing')
+      }
+      let resolveDelete!: (value: GatedResponse) => void
+      const deleteGate = new Promise<GatedResponse>((resolve) => {
+        resolveDelete = resolve
+      })
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/comments/c-old') && init?.method === 'DELETE') {
+          return deleteGate
+        }
+        return inner(url, init)
+      })
+      renderPage()
+      await flush()
+
+      act(() => {
+        ;(container.querySelector('[aria-label="Remove comment c-old"]') as HTMLButtonElement).click()
+      })
+      await flush()
+
+      const yes = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'YES',
+      ) as HTMLButtonElement | undefined
+      act(() => {
+        yes?.click()
+      })
+      await flush()
+
+      expect(yes?.disabled).toBe(true)
+      expect(container.querySelector('[aria-label="Removing comment"]')).not.toBeNull()
+
+      resolveDelete({ ok: false, status: 500, json: async () => ({}) })
+      await flush()
+
+      expect(container.querySelector('[aria-label="Remove comment"]')).not.toBeNull()
+      expect(container.textContent).toContain('Older note')
+      expect(
+        fetchMock.mock.calls.filter(
+          (call) =>
+            String(call[0]).endsWith('/comments/c-old') &&
+            (call[1] as RequestInit | undefined)?.method === 'DELETE',
+        ),
+      ).toHaveLength(1)
+    })
   })
 })

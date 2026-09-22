@@ -49,6 +49,7 @@ function sharedBoard() {
   manageBoard(board, alice, { kind: "addMember", member: carol });
   const johnTask = createTask(board, bob, { id: tid(), title: "John's task" });
   const carolTask = createTask(board, carol, { id: tid(), title: "Carol's task" });
+  moveBoard(board, alice, LifecycleState.InProgress);
   return { board, johnTask, carolTask };
 }
 
@@ -138,7 +139,6 @@ describe("boards spec scenarios", () => {
 
   it("board ownership cannot be reassigned while the board is frozen", () => {
     const { board } = sharedBoard();
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Blocked);
     expectReadOnly(() => reassignBoardOwner(board, alice, bob));
     expect(board.owner).toBe(alice);
@@ -153,6 +153,7 @@ describe("boards spec scenarios", () => {
     const boardA = createBoard(alice, { id: bid(), title: "A" });
     const boardB = createBoard(alice, { id: bid(), title: "B" });
     const task = createTask(boardA, alice, { id: tid(), title: "t" });
+    moveBoard(boardA, alice, LifecycleState.InProgress);
     moveTask(boardA, alice, task.id, LifecycleState.InProgress);
     expect(task.boardId).toBe(boardA.id);
     expect(boardA.tasks).toContain(task);
@@ -164,14 +165,12 @@ describe("boards spec scenarios", () => {
     moveTask(board, bob, johnTask.id, LifecycleState.InProgress);
     moveTask(board, bob, johnTask.id, LifecycleState.Done);
     moveTask(board, carol, carolTask.id, LifecycleState.Cancelled);
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Done);
     expect(board.state).toBe(LifecycleState.Done);
   });
 
   it("board returns to its previous state after blocking", () => {
     const { board } = sharedBoard();
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Blocked);
     expect(board.state).toBe(LifecycleState.Blocked);
     moveBoard(board, alice, LifecycleState.InProgress);
@@ -192,7 +191,6 @@ describe("boards spec scenarios", () => {
   it("live tasks prevent completion", () => {
     const { board, johnTask } = sharedBoard();
     moveTask(board, bob, johnTask.id, LifecycleState.InProgress);
-    moveBoard(board, alice, LifecycleState.InProgress);
     expect(() => moveBoard(board, alice, LifecycleState.Done)).toThrow(DomainError);
   });
 
@@ -201,7 +199,6 @@ describe("boards spec scenarios", () => {
     moveTask(board, bob, johnTask.id, LifecycleState.InProgress);
     moveTask(board, bob, johnTask.id, LifecycleState.Done);
     moveTask(board, carol, carolTask.id, LifecycleState.Cancelled);
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Done);
     expect(board.state).toBe(LifecycleState.Done);
   });
@@ -209,7 +206,6 @@ describe("boards spec scenarios", () => {
   it("blocked board freezes tasks keeping their state", () => {
     const { board, johnTask } = sharedBoard();
     moveTask(board, bob, johnTask.id, LifecycleState.InProgress);
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Blocked);
     expect(johnTask.state).toBe(LifecycleState.InProgress);
     expect(isEditable(board, johnTask)).toBe(false);
@@ -217,7 +213,6 @@ describe("boards spec scenarios", () => {
 
   it("unblocking the board restores editability", () => {
     const { board, johnTask } = sharedBoard();
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Blocked);
     expect(isEditable(board, johnTask)).toBe(false);
     moveBoard(board, alice, LifecycleState.InProgress);
@@ -238,7 +233,6 @@ describe("boards spec scenarios", () => {
     const carolDone = board.tasks.find((t) => t.id !== johnTask.id)!;
     moveTask(board, carol, carolDone.id, LifecycleState.InProgress);
     moveTask(board, carol, carolDone.id, LifecycleState.Done);
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Done);
     expect(board.state).toBe(LifecycleState.Done);
     expect(isEditable(board, johnTask)).toBe(false);
@@ -265,9 +259,9 @@ describe("boards spec scenarios", () => {
     for (const state of [LifecycleState.Done, LifecycleState.Cancelled]) {
       const board = createBoard(alice, { id: bid(), title: "B" });
       const task = createTask(board, alice, { id: tid(), title: "t" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, alice, task.id, LifecycleState.InProgress);
       moveTask(board, alice, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       expectReadOnly(() => manageBoard(board, alice, { kind: "addMember", member: bob }));
     }
@@ -287,9 +281,9 @@ describe("boards spec scenarios", () => {
     for (const state of [LifecycleState.Done, LifecycleState.Cancelled]) {
       const board = createBoard(alice, { id: bid(), title: "B" });
       const task = createTask(board, alice, { id: tid(), title: "t" });
+      moveBoard(board, alice, LifecycleState.InProgress);
       moveTask(board, alice, task.id, LifecycleState.InProgress);
       moveTask(board, alice, task.id, state === LifecycleState.Done ? LifecycleState.Done : LifecycleState.Cancelled);
-      moveBoard(board, alice, LifecycleState.InProgress);
       moveBoard(board, alice, state);
       expectReadOnly(() => manageBoard(board, alice, { kind: "editAttributes", title: "X" }));
       manageBoard(board, alice, { kind: "editAttributes", description: `desc-${state}` });
@@ -404,7 +398,6 @@ describe("access-control spec scenarios", () => {
 
   it("frozen board rejects task creation", () => {
     const { board } = sharedBoard();
-    moveBoard(board, alice, LifecycleState.InProgress);
     moveBoard(board, alice, LifecycleState.Blocked);
     const count = board.tasks.length;
     expectReadOnly(() => createTask(board, alice, { id: tid(), title: "Frozen" }));

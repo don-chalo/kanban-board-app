@@ -1,5 +1,13 @@
-import { Board, LifecycleState, Task } from "../domain/entities";
-import { BoardDoc } from "../models";
+import { Board, Comment, LifecycleState, Task } from "../domain/entities";
+import { BoardDoc, CommentDoc } from "../models";
+
+function commentDocToDomain(doc: CommentDoc): Comment {
+  return { id: doc._id, author: doc.author, text: doc.text, createdAt: doc.createdAt };
+}
+
+function commentToDoc(comment: Comment): CommentDoc {
+  return { _id: comment.id, author: comment.author, text: comment.text, createdAt: comment.createdAt };
+}
 
 export function boardDocToDomain(doc: BoardDoc, tasks: Task[] = []): Board {
   return {
@@ -12,6 +20,7 @@ export function boardDocToDomain(doc: BoardDoc, tasks: Task[] = []): Board {
     state: doc.state as LifecycleState,
     previousState: doc.previousState as LifecycleState | null,
     tasks,
+    comments: (doc.comments ?? []).map(commentDocToDomain),
   };
 }
 
@@ -25,5 +34,6 @@ export function boardToDoc(board: Board): BoardDoc {
     associated: [...board.associated],
     state: board.state,
     previousState: board.previousState,
+    comments: board.comments.map(commentToDoc),
   };
 }

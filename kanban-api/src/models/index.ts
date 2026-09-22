@@ -5,6 +5,13 @@ export interface UserDoc {
   email: string;
 }
 
+export interface CommentDoc {
+  _id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface BoardDoc {
   _id: string;
   title: string;
@@ -14,6 +21,7 @@ export interface BoardDoc {
   associated: string[];
   state: string;
   previousState: string | null;
+  comments?: CommentDoc[];
 }
 
 export interface TaskDoc {
@@ -28,6 +36,7 @@ export interface TaskDoc {
   priority?: string;
   startedAt?: string | null;
   storyPoints?: number | null;
+  comments?: CommentDoc[];
 }
 
 const userSchema = new Schema(
@@ -39,6 +48,16 @@ const userSchema = new Schema(
 );
 userSchema.index({ email: 1 }, { unique: true });
 
+const commentSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    author: { type: String, required: true },
+    text: { type: String, required: true },
+    createdAt: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 const boardSchema = new Schema(
   {
     _id: { type: String, required: true },
@@ -49,6 +68,7 @@ const boardSchema = new Schema(
     associated: { type: [String], default: [] },
     state: { type: String, required: true },
     previousState: { type: String, default: null },
+    comments: { type: [commentSchema], default: [] },
   },
   { versionKey: false, collection: "boards" },
 );
@@ -73,6 +93,7 @@ const taskSchema = new Schema(
     },
     startedAt: { type: String, default: null },
     storyPoints: { type: Number, enum: [1, 2, 3, 5, 8, 13], default: null },
+    comments: { type: [commentSchema], default: [] },
   },
   { versionKey: false, collection: "tasks" },
 );

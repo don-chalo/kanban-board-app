@@ -16,6 +16,7 @@ const board = {
   state: 'To Do',
   previousState: null,
   tasks: [],
+  comments: [],
 }
 
 const USERS: Record<string, string> = {
@@ -35,6 +36,7 @@ function makeBoard(overrides: Record<string, unknown> = {}) {
     state: 'ToDo',
     previousState: null,
     tasks: [],
+    comments: [],
     ...overrides,
   }
 }

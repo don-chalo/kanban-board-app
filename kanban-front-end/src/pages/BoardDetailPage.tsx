@@ -4,16 +4,20 @@ import { useCallback, useEffect, useRef, useState, type FocusEvent, type Keyboar
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   addBoardMember,
+  createComment,
+  editComment,
   getBoard,
   getTransitions,
   moveBoard,
   moveTask,
+  removeComment,
   removeMember,
   resolveUser,
   searchUsers,
   updateBoard,
   PRIORITY_WEIGHT,
   type Board,
+  type Comment,
   type LifecycleState,
   type Task,
   type TransitionsTable,
@@ -44,11 +48,14 @@ function deriveMoves(
 ): { boardMoves: LifecycleState[]; taskMoves: Map<string, LifecycleState[]> } {
   const frozen = table.frozenStates.includes(board.state)
   const boardMoves = TERMINAL_STATES.has(board.state) ? [] : [...(table.transitions[board.state] ?? [])]
+  const started = board.state === 'InProgress'
   const taskMoves = new Map<string, LifecycleState[]>()
   for (const task of board.tasks) {
     taskMoves.set(
       task.id,
-      frozen || TERMINAL_STATES.has(task.state) ? [] : [...(table.transitions[task.state] ?? [])],
+      frozen || !started || TERMINAL_STATES.has(task.state)
+        ? []
+        : [...(table.transitions[task.state] ?? [])],
     )
   }
   return { boardMoves, taskMoves }
@@ -77,6 +84,11 @@ function BoardDetailPage() {
   const [memberError, setMemberError] = useState<string | null>(null)
   const [addBusy, setAddBusy] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<UserId | null>(null)
+  const [commentText, setCommentText] = useState('')
+  const [commentError, setCommentError] = useState<string | null>(null)
+  const [removeCommentId, setRemoveCommentId] = useState<string | null>(null)
+  const [addingComment, setAddingComment] = useState(false)
+  const [busyCommentId, setBusyCommentId] = useState<string | null>(null)
   const keepEntryOpenRef = useRef(false)
 
   const loadBoard = useCallback(
@@ -102,7 +114,6 @@ function BoardDetailPage() {
       }
       const loaded = result.board
       setBoard(loaded)
-      setLoading(false)
       setMembers(
         await resolveMemberEmails([
           loaded.creator,
@@ -124,6 +135,7 @@ function BoardDetailPage() {
         setFailedTaskMoves(new Set(loaded.tasks.map((task) => task.id)))
         setBoardMoves({ loading: false, moves: [] })
       }
+      setLoading(false)
     },
     [boardId, navigate],
   )
@@ -206,8 +218,67 @@ function BoardDetailPage() {
     try {
       await moveTask(boardId, taskId, target)
       await loadBoard(false)
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code ?? null
+      const message = error instanceof Error ? error.message : ''
+      if (code === 'board_not_in_progress' || message.includes('board_not_in_progress')) {
+        setPanelError('Start the board before moving tasks.')
+      } else {
+        setPanelError('Could not move the task.')
+      }
+    }
+  }
+
+  async function handleCommentAdd() {
+    if (boardId === undefined || addingComment) {
+      return
+    }
+    const text = commentText.trim()
+    if (text.length === 0) {
+      setCommentError('Comment is required.')
+      return
+    }
+    setCommentError(null)
+    setAddingComment(true)
+    try {
+      await createComment(boardId, text)
+      setCommentText('')
+      await loadBoard(false)
     } catch {
-      setPanelError('Could not move the task.')
+      setCommentError('Could not add the comment.')
+    } finally {
+      setAddingComment(false)
+    }
+  }
+
+  async function handleCommentEdit(commentId: string, next: string) {
+    if (boardId === undefined) {
+      return
+    }
+    setBusyCommentId(commentId)
+    try {
+      await editComment(boardId, commentId, next)
+      await loadBoard(false)
+    } catch {
+      setCommentError('Could not save the comment.')
+    } finally {
+      setBusyCommentId(null)
+    }
+  }
+
+  async function handleCommentRemove(commentId: string) {
+    if (boardId === undefined) {
+      return
+    }
+    setBusyCommentId(commentId)
+    try {
+      await removeComment(boardId, commentId)
+      setRemoveCommentId(null)
+      await loadBoard(false)
+    } catch {
+      setCommentError('Could not remove the comment.')
+    } finally {
+      setBusyCommentId(null)
     }
   }
 
@@ -396,6 +467,27 @@ function BoardDetailPage() {
     }
     return isManager || task.owner === actorId
   }
+
+  function canEditComment(comment: Comment): boolean {
+    if (actorId === '') {
+      return false
+    }
+    return comment.author === actorId || isManager
+  }
+
+  function renderSpinner(label: string) {
+    return (
+      <span
+        role="status"
+        aria-label={label}
+        className="inline-block h-4 w-4 shrink-0 animate-spin border border-xenon border-t-transparent"
+      />
+    )
+  }
+
+  const sortedComments = [...board.comments].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )
   const creatorEmail = members.get(board.creator) ?? board.creator
   const ownerEmail = members.get(board.owner) ?? board.owner
   const totalPoints = board.tasks.reduce((sum, task) => sum + (task.storyPoints ?? 0), 0)
@@ -451,7 +543,7 @@ function BoardDetailPage() {
               inputLabel="Board description"
               placeholder="(no description)"
               onSave={handleDescriptionSave}
-              displayClassName="mt-2 block w-full cursor-text border-none bg-transparent p-0 text-left text-sm opacity-70"
+              displayClassName="mt-2 block w-full cursor-text border-none bg-transparent p-0 text-left text-sm opacity-70 hover:bg-xenon/10"
               inputClassName="mt-2 block w-full border border-xenon bg-transparent px-2 py-1 text-sm opacity-100 focus:ring-2 focus:ring-xenon"
             />
             <p data-testid="board-effort-summary" className="mt-2 text-xs tracking-widest opacity-70">
@@ -498,7 +590,7 @@ function BoardDetailPage() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-5 gap-3">
+            <div className="mt-4 grid min-h-64 grid-cols-5 gap-3">
               {COLUMN_ORDER.map((state) => (
                 <section key={state} aria-label={STATE_LABELS[state]}>
                   <h2 className="border-b border-xenon pb-1 text-xs font-bold tracking-widest opacity-80">
@@ -526,7 +618,6 @@ function BoardDetailPage() {
                           moves={taskMoves.get(task.id) ?? []}
                           movesFailed={failedTaskMoves.has(task.id)}
                           onMoved={handleTaskMove}
-                          editable={canEditTask(task)}
                           onEdit={setEditingTask}
                         />
                       ))}
@@ -534,6 +625,90 @@ function BoardDetailPage() {
                 </section>
               ))}
             </div>
+
+            <section aria-label="Comments" className="mt-8">
+              <h2 className="border-b border-xenon pb-1 text-xs font-bold tracking-widest opacity-80">
+                COMMENTS{' '}
+                <span className="opacity-60">({board.comments.length})</span>
+              </h2>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={commentText}
+                  onChange={(event) => {
+                    setCommentText(event.target.value)
+                    setCommentError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void handleCommentAdd()
+                    }
+                  }}
+                  placeholder="Write a comment..."
+                  aria-label="New comment"
+                  disabled={addingComment}
+                  className="flex-1 border border-xenon bg-transparent px-3 py-1 text-sm caret-xenon outline-none placeholder:text-xenon/40 focus:ring-2 focus:ring-xenon disabled:cursor-not-allowed disabled:opacity-40"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleCommentAdd()}
+                  aria-label="Add comment"
+                  disabled={addingComment}
+                  className="bg-xenon px-4 font-bold tracking-widest text-void hover:bg-xenon/80 disabled:opacity-50"
+                >
+                  &gt; ADD
+                </button>
+                {addingComment && renderSpinner('Adding comment')}
+              </div>
+              {commentError !== null && (
+                <p role="alert" className="mt-2 text-xs tracking-widest">
+                  ERR: {commentError}
+                </p>
+              )}
+              {sortedComments.length === 0 ? (
+                <p className="mt-2 text-sm tracking-widest opacity-70">(no comments yet)</p>
+              ) : (
+                <ul className="mt-2 flex flex-col gap-2">
+                  {sortedComments.map((comment) => (
+                    <li key={comment.id} className="border border-xenon px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 text-xs tracking-widest opacity-70">
+                        <span>
+                          {members.get(comment.author) ?? comment.author} -{' '}
+                          {new Date(comment.createdAt).toLocaleString()}
+                        </span>
+                        {canEditComment(comment) && (
+                          <span className="flex shrink-0 items-center gap-2">
+                            {busyCommentId === comment.id && renderSpinner('Working on comment')}
+                            <button
+                              type="button"
+                              aria-label={`Remove comment ${comment.id}`}
+                              onClick={() => setRemoveCommentId(comment.id)}
+                              disabled={busyCommentId === comment.id}
+                              className="border border-xenon px-1 font-bold leading-none hover:bg-xenon/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              x
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                      <InlineEdit
+                        value={comment.text}
+                        displayText={comment.text}
+                        editable={canEditComment(comment)}
+                        inputLabel={`Comment ${comment.id}`}
+                        validate={(value) =>
+                          value.trim().length === 0 ? 'Comment is required.' : null
+                        }
+                        onSave={(next) => handleCommentEdit(comment.id, next)}
+                        displayClassName="mt-1 block w-full cursor-text border-none bg-transparent p-0 text-left text-sm hover:bg-xenon/10"
+                        inputClassName="mt-1 block w-full border border-xenon bg-transparent px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-xenon"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </section>
 
           <aside className="w-60 shrink-0">
@@ -758,7 +933,10 @@ function BoardDetailPage() {
             isManager={isManager}
             members={members}
             onClose={() => setModalOpen(false)}
-            onCreate={() => void loadBoard(false)}
+            onCreate={() =>{
+              setModalOpen(false);
+              void loadBoard(false);
+            }}
           />
         )}
 
@@ -769,12 +947,55 @@ function BoardDetailPage() {
             isManager={isManager}
             members={members}
             task={editingTask}
-            onClose={() => setEditingTask(null)}
+            editable={canEditTask(editingTask)}
+            onClose={() => {
+              setEditingTask(null)
+              void loadBoard(false)
+            }}
             onCreate={() => {
               setEditingTask(null)
               void loadBoard(false)
             }}
           />
+        )}
+
+        {removeCommentId !== null && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Remove comment"
+            className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setRemoveCommentId(null)
+              }
+            }}
+          >
+            <div className="flex w-full max-w-sm flex-col gap-4 border-2 border-xenon bg-void p-6">
+              <h2 className="text-xl font-bold tracking-widest">REMOVE COMMENT</h2>
+              <p className="text-sm tracking-widest">
+                Delete this comment? This cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={busyCommentId !== null}
+                  onClick={() => void handleCommentRemove(removeCommentId)}
+                  className="flex flex-1 items-center justify-center gap-2 bg-xenon px-4 py-2 font-bold tracking-widest text-void hover:bg-xenon/80 disabled:opacity-50"
+                >
+                  {busyCommentId !== null && renderSpinner('Removing comment')}
+                  YES
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRemoveCommentId(null)}
+                  className="flex-1 border border-xenon px-4 py-2 font-bold tracking-widest hover:bg-xenon/10"
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {removeTarget !== null && (

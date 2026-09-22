@@ -9,9 +9,24 @@ export interface AppDependencies {
   boardRepo: BoardRepository;
 }
 
-export function buildApp({ userRepo, boardRepo }: AppDependencies) {
+export interface AppOptions {
+  corsOrigin?: string[];
+}
+
+export function buildApp({ userRepo, boardRepo }: AppDependencies, opts: AppOptions = {}) {
   const app = express();
-  app.use(cors());
+  const allowedOrigins = opts.corsOrigin ?? [];
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (origin === undefined) {
+          callback(null, true);
+          return;
+        }
+        callback(null, allowedOrigins.includes(origin));
+      },
+    }),
+  );
   app.use(express.json());
   app.use(createUsersRouter(userRepo));
   app.use(createTransitionsRouter(userRepo));

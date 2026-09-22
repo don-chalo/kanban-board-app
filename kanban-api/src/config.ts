@@ -3,6 +3,7 @@ import "dotenv/config";
 export interface AppConfig {
   mongodbUri: string;
   port: number;
+  corsOrigin: string[];
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -14,5 +15,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error("DEFAULT_PORT is required and must be a positive integer");
   }
-  return { mongodbUri, port };
+  const corsOrigin = (env.CORS_ORIGIN ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  return { mongodbUri, port, corsOrigin };
 }

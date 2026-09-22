@@ -9,6 +9,19 @@ describe("loadConfig", () => {
     });
     expect(config.mongodbUri).toBe("mongodb://example.com:27017/todo");
     expect(config.port).toBe(8080);
+    expect(config.corsOrigin).toEqual([]);
+  });
+
+  it("parses CORS_ORIGIN into a trimmed list", () => {
+    const config = loadConfig({
+      DATABASE_URL: "mongodb://example.com:27017/todo",
+      DEFAULT_PORT: "8080",
+      CORS_ORIGIN: "https://app.example.com, https://preview.example.com ,, ",
+    });
+    expect(config.corsOrigin).toEqual([
+      "https://app.example.com",
+      "https://preview.example.com",
+    ]);
   });
 
   it("throws when DATABASE_URL is missing or blank", () => {

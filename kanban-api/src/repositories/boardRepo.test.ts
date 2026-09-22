@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LifecycleState } from "../domain/entities";
 import {
+  addComment,
   createBoard,
   createTask,
   deleteTask,
@@ -47,6 +48,33 @@ describe("boardRepo", () => {
 
     it("returns null for a missing board", async () => {
       expect(await repo.loadBoardAggregate("b-missing")).toBeNull();
+    });
+
+    it("round-trips embedded comments", async () => {
+      const board = createBoard(alice, { id: "b-comments", title: "Comments" });
+      addComment(board, alice, { id: "c-1", text: "Hello" }, "2026-09-21T10:00:00.000Z");
+      await repo.saveBoardAggregate(board);
+
+      const loaded = await repo.loadBoardAggregate("b-comments");
+      expect(loaded!.comments).toEqual([
+        { id: "c-1", author: alice, text: "Hello", createdAt: "2026-09-21T10:00:00.000Z" },
+      ]);
+    });
+
+    it("reads a legacy board without comments as empty", async () => {
+      await BoardModel.create({
+        _id: "b-legacy",
+        title: "Legacy",
+        description: "",
+        creator: alice,
+        owner: alice,
+        associated: [],
+        state: "ToDo",
+        previousState: null,
+      });
+
+      const loaded = await repo.loadBoardAggregate("b-legacy");
+      expect(loaded!.comments).toEqual([]);
     });
   });
 
