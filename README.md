@@ -10,7 +10,7 @@ Aplicación Kanban full-stack para gestionar tableros, tareas, miembros y transi
 - Vite 7
 - React Router 7
 - Tailwind CSS 4
-- Radix UI: Avatar, Select y Tooltip
+- Radix UI: Avatar, Checkbox, Select y Tooltip
 - Vitest + Happy DOM para pruebas
 
 ### Backend — `kanban-api/`
@@ -77,3 +77,29 @@ npm run dev
 ```
 
 Vite mostrará la URL local en la terminal.
+
+## Pruebas
+
+```bash
+cd kanban-api && npm test        # Vitest + Supertest + mongodb-memory-server
+cd kanban-front-end && npm test  # Vitest + Happy DOM
+cd kanban-front-end && npm run lint && npm run build
+```
+
+Si el pool de workers de Vitest colapsa en tu máquina
+(`Worker exited unexpectedly...` sin ningún FAIL), corre con
+`npx vitest run src --maxWorkers=2`.
+
+## Flujo de trabajo (OpenSpec)
+
+Los cambios se trabajan como *changes* versionados: propuesta →
+implementación → archivo.
+
+```bash
+openspec list                    # changes activos
+openspec status --change "<id>"  # artefactos y progreso
+openspec validate --specs --strict
+```
+
+El historial vive en `openspec/changes/archive/` y las especificaciones
+vigentes en `openspec/specs/`.
